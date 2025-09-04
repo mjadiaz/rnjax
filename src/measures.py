@@ -5,7 +5,7 @@ import networkx as nx
 
 # Resilience assesment
 
-def entropic_measures(S_hist, S_hist_R, fraction, surviving_nodes, im_args=None):
+def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):
 
     if im_args is None:
         im_args = {"approach": "miller_madow", "base": 2}
@@ -75,6 +75,35 @@ def lz_complexity_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33):
     }
     return results_dict
 
+def sample_entropy_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, order=400):
+    test_fraction = int(len(S_hist)*fraction)
+
+    st_pre_attack = S_hist[-test_fraction:, surviving_nodes]
+    st_post_attack_init = S_hist_R[:test_fraction]
+    st_post_attack_final = S_hist_R[-test_fraction:]
+
+    se_pre_list = []
+    se_posti_list = []
+    se_postf_list = []
+    for j in range(len(surviving_nodes)):
+        se_pre = ant.sample_entropy(st_pre_attack[:, j], order=order)
+        se_posti = ant.sample_entropy(st_post_attack_init[:, j], order=order)
+        se_postf = ant.sample_entropy(st_post_attack_final[:, j], order=order)
+
+        se_pre_list.append(se_pre)
+        se_posti_list.append(se_posti)
+        se_postf_list.append(se_postf)
+
+    avg_se_pre = np.mean(se_pre_list)
+    avg_se_posti = np.mean(se_posti_list)
+    avg_se_postf = np.mean(se_postf_list)
+    # Instead of the print statement, create a dictionary:
+    results_dict = {
+        "avg_se_pre": avg_se_pre,
+        "avg_se_post_init": avg_se_posti,
+        "avg_se_post_final": avg_se_postf
+    }
+    return results_dict
 # Graph measures
 
 def global_metrics_directed(G, weight='weight'):
