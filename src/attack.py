@@ -234,7 +234,7 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             # t1 = time.perf_counter()
             (pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch) = pruned_out
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
-            print(f"Final shapes: V_hist {pruned_V_hist_batch.shape}, S_hist {pruned_S_hist_batch.shape}")
+            print(f"Final shapes: V_hist {pruned_V_hist_batch.shape}, S_hist {pruned_S_hist_batch.shape}, i:{i}")
 
             # Save
             # t0 = time.perf_counter()
@@ -363,7 +363,7 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             (pruned_final_states_batch, pruned_final_stdp_states_batch,
             pruned_V_hist_batch, pruned_S_hist_batch) = pruned_out
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
-            print(f"Final shapes: V_hist {pruned_V_hist_batch.shape}, S_hist {pruned_S_hist_batch.shape}")
+            print(f"Final shapes: V_hist {pruned_V_hist_batch.shape}, S_hist {pruned_S_hist_batch.shape}, i:{i}")
 
             # Save
             # t0 = time.perf_counter()

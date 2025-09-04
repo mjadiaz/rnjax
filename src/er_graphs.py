@@ -209,13 +209,13 @@ structures = {
 
 if __name__ == "__main__":
     attack_params = {
-        'n_nodes': 100,
-        'T_global': 5000, #ms
-        'batch_size': 100,
+        'n_nodes': 200,
+        'T_global': 4000, #ms
+        'batch_size': 50,
         'attack_fraction': 0.1,
         'attack_key': 42,
         'graphs_key': 256,
-        'number_of_graphs': 3
+        'number_of_graphs': 10
     }
 
-    test_attack_pipeline_seq_base(structures['ER_intermediate'], 'save_0', attack_params)
+    test_attack_pipeline_seq_base(structures['ER_intermediate'], 'save_test_intermediate', attack_params)
