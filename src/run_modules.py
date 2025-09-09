@@ -12,6 +12,8 @@ from jax import lax, random
 import jax
 import jax.numpy as jnp
 
+from tqdm import tqdm
+
 def test_attack_pipeline_seq_base(structure, save_path, attack_params, gn_fn):
     t0_global = time.perf_counter()
 
@@ -125,7 +127,7 @@ def generate_graphs_and_neurons(structure, attack_params, gg_fn):
     neurons_list = []
     weight_bounds = structure['weight_bounds']
 
-    for i in range(number_of_graphs):
+    for i in tqdm(range(number_of_graphs)):
         # Create a seed for this graph
         seed = graphs_key + i
         rng = np.random.default_rng(seed)

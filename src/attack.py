@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 import gc
 
+
 # Import necessary components from the simple_functional_stdp module
 from networks import (
     NetworkParams, NetworkState, STDPParams, STDPState,
