@@ -464,7 +464,8 @@ def run_stdp_network_syn(params: NetworkParams, stdp_params: STDPParams,
 def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
                          weight_bounds: Tuple[float, float] = (10.0, 20.0),
                          key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
-    """Create a random network of Izhikevich neurons."""
+    """Create a random network of Izhikevich neurons.
+    Note: Can we optimise this? cpu -> gpu"""
     if key is None:
         key = random.PRNGKey(42)
 

@@ -6,42 +6,39 @@ import networkx as nx
 # Resilience assesment
 
 def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):
+    """
+    Calculate entropy-based measures for system resilience assessment.
+
+    For better readability, time series are labeled as:
+    A = pre-attack state (st_pre_attack)
+    B = post-attack initial state (st_post_attack_init)
+    C = post-attack final state (st_post_attack_final)
+    """
 
     if im_args is None:
         im_args = {"approach": "miller_madow", "base": 2}
 
     test_fraction = int(len(S_hist) * fraction)
 
-    st_pre_attack = S_hist[-test_fraction:, surviving_nodes]
-    st_post_attack_init = S_hist_R[:test_fraction]
-    st_post_attack_final = S_hist_R[-test_fraction:]
+    A = S_hist[-test_fraction:, surviving_nodes]
+    B = S_hist_R[:test_fraction]
+    C = S_hist_R[-test_fraction:]
 
-    je_pre = im.entropy(st_pre_attack, **im_args)
-    je_post_init = im.entropy(st_post_attack_init, **im_args)
-    je_post_final = im.entropy(st_post_attack_final, **im_args)
+    h_A = im.entropy(A, **im_args)
+    h_B = im.entropy(B, **im_args)
+    h_C = im.entropy(C, **im_args)
 
-    mi_post_init = im.mutual_information(
-        st_pre_attack,
-        st_post_attack_init,
-        **im_args)
-
-    mi_post_final = im.mutual_information(
-        st_pre_attack,
-        st_post_attack_final,
-        **im_args)
-
-    self_mi = im.mutual_information(
-        st_pre_attack,
-        st_pre_attack,
-        **im_args)
+    mi_AB = im.mutual_information(A,B,**im_args)
+    mi_AC = im.mutual_information(A,C,**im_args)
+    mi_AA = im.mutual_information(A,A,**im_args)
 
     return {
-        'je_pre': je_pre,
-        'je_post_init': je_post_init,
-        'je_post_final': je_post_final,
-        'mi_post_init': mi_post_init,
-        'mi_post_final': mi_post_final,
-        'self_mi': self_mi
+        'h_A': h_A,
+        'h_B': h_B,
+        'h_C': h_C,
+        'mi_AB': mi_AB,
+        'mi_AC': mi_AC,
+        'mi_AA': mi_AA
     }
 
 
@@ -75,7 +72,7 @@ def lz_complexity_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33):
     }
     return results_dict
 
-def sample_entropy_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, order=400):
+def sample_entropy_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, order=2):
     test_fraction = int(len(S_hist)*fraction)
 
     st_pre_attack = S_hist[-test_fraction:, surviving_nodes]
