@@ -43,7 +43,7 @@ def get_save_dirs(base_dir_path: str) -> list:
 def take_submatrix(M: np.ndarray, idx: np.ndarray) -> np.ndarray:
     return M[np.ix_(idx, idx)]
 
-def process_batch(batch, base_S_hist, pruned_S_hist_batch, W0, removed_ids, pruned_syn_hist, n_nodes, I_ext):
+def process_batch(batch, base_S_hist, pruned_S_hist_batch, W0, removed_ids, n_nodes, I_ext):
     """
     Process a single batch - modified for parallel execution
     """
@@ -63,8 +63,8 @@ def process_batch(batch, base_S_hist, pruned_S_hist_batch, W0, removed_ids, prun
         post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
         gm = global_metrics_directed(post_G_reconstructed)
 
-        mean_abs_syn = np.mean(np.abs(pruned_syn_hist[batch]))      # average across time & neurons
-        b_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
+        #mean_abs_syn = np.mean(np.abs(pruned_syn_hist[batch]))      # average across time & neurons
+        #b_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
 
         return {
             'batch': batch,
@@ -72,7 +72,7 @@ def process_batch(batch, base_S_hist, pruned_S_hist_batch, W0, removed_ids, prun
             'lz': lz,
             'sp': sp,
             'gm': gm,
-            'drf': {'batch_driver_fraction': b_driver_fraction}
+       #     'drf': {'batch_driver_fraction': b_driver_fraction[batch]}
         }
     except Exception as e:
         logger.error(f"Error processing batch {batch}: {e}")
@@ -116,15 +116,15 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             removed_ids = restored.arrays['removed_ids']
             neuron_type = restored.arrays['neuron_type']
             n_nodes = restored.metadata['parameters']['N']
-            pruned_syn_hist = restored.arrays['pruned_syn_hist']
-
+            base_driver_fraction = restored.arrays['base_driver_fraction']
+            batch_driver_fraction = restored.arrays['batch_driver_fraction']
             # Calculate base metrics
             pre_G_reconstructed = nx.from_numpy_array(W0, create_using=nx.DiGraph)
             gm0 = global_metrics_directed(pre_G_reconstructed)
 
-            base_syn_hist = restored.arrays['base_syn_hist']
-            mean_abs_syn = np.mean(np.abs(base_syn_hist))
-            base_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
+            #base_syn_hist = restored.arrays['base_syn_hist']
+            #mean_abs_syn = np.mean(np.abs(base_syn_hist))
+            #base_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
 
             # Get actual batch size from data
             actual_batch_size = pruned_S_hist_batch.shape[0]
@@ -139,7 +139,7 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
                 pruned_S_hist_batch=pruned_S_hist_batch,
                 W0=W0,
                 removed_ids=removed_ids,
-                pruned_syn_hist=pruned_syn_hist,
+                #b_driver_fraction=b_driver_fraction,
                 n_nodes=n_nodes,
                 I_ext=I_ext
             )
@@ -192,10 +192,10 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             all_lz = [r['lz'] for r in results]
             all_sp = [r['sp'] for r in results]
             all_gm = [r['gm'] for r in results]
-            all_drf = [r['drf'] for r in results]
+            #all_drf = [r['drf'] for r in results]
 
             # Create DataFrame
-            all_metrics = [all_emsrs, all_lz, all_sp, all_gm, all_drf]
+            all_metrics = [all_emsrs, all_lz, all_sp, all_gm]
             collect_rows = []
 
             for b in range(len(results)):
@@ -211,7 +211,9 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             gm0_renamed = {key + "_pre": value for key, value in gm0.items()}
             for col, val in gm0_renamed.items():
                 df[col] = val
-            df['base_driver_fraction'] = base_driver_fraction
+
+            df['base_driver_fraction'] = np.unique(base_driver_fraction)[0]
+            df['batch_driver_fraction'] = batch_driver_fraction
 
             # Save to CSV
             df.to_csv(analysis_path, index=False)
@@ -304,15 +306,18 @@ def main(max_workers=None, batch_size=20, I_ext=10.0, base_dir=None):
     return successful_steps, failed_steps
 
 if __name__ == "__main__":
-    # You can customize these parameters:
-    # - max_workers: Number of parallel processes (default: all CPU cores)
-    # - batch_size: Expected batch size (default: 20)
-    # - I_ext: External input parameter (default: 10.0)
-    all_base_dirs = get_save_dirs('save')
-    #all_base_dirs = [str(a) for a in all_base_dirs]
-    #print(all_base_dirs)
-    for base_dir in all_base_dirs:
-        successful, failed = main(base_dir=base_dir)
+    import click
 
-    # if failed:
-    #     exit(1)  # Exit with error code if any steps failed
+    @click.command()
+    @click.option('--base_dir', help='Base directory to process')
+    def cli(base_dir):
+        if base_dir:
+            # Use the specified base directory
+            successful, failed = main(base_dir=Path(base_dir))
+        else:
+            # Process all directories in 'save'
+            all_base_dirs = get_save_dirs('save')
+            for base_dir in all_base_dirs:
+                successful, failed = main(base_dir=base_dir)
+
+    cli()

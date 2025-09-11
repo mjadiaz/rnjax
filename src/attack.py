@@ -191,6 +191,8 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             base_final_state, base_V_hist, base_S_hist, base_syn_hist = base_out
             # print(f"Base execution completed in {t1 - t0:.4f} seconds")
 
+            mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
+            base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
             # Create batch of removal indices
             # Different sets of neurons to remove for each example in the batch
             # t0 = time.perf_counter()
@@ -238,6 +240,12 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
             print(f"Batched execution completed base, i:{i}")
 
+            mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=(1, 2))
+            # For each batch, calculate the driver fraction and then average
+            # First, get unique current values (should be the same for all batches)
+            unique_current = np.unique(I_ext)
+            # Calculate driver fraction by properly handling batch dimension
+            b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
             # Save
             # t0 = time.perf_counter()
             metadata = {
@@ -252,8 +260,8 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             arrays_to_save = {
                 "pruned_S_hist_batch": pruned_S_hist_batch,
                 "base_S_hist": base_S_hist,
-                "base_syn_hist": base_syn_hist,
-                "pruned_syn_hist": pruned_syn_hist,
+                "base_driver_fraction": base_driver_fraction,
+                "batch_driver_fraction": b_driver_fraction,
                 "W0": initial_state.W,
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types
@@ -320,6 +328,8 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             base_final_state, base_final_stdp_state, base_V_hist, base_S_hist, base_syn_hist = base_out
             # print(f"Base execution completed in {t1 - t0:.4f} seconds")
 
+            mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
+            base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
             # Create batch of removal indices
             # Different sets of neurons to remove for each example in the batch
             # t0 = time.perf_counter()
@@ -369,6 +379,13 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
             print(f"Batched execution completed stdp, i:{i}")
 
+            # Calculate mean across all batches, time steps, and neurons
+            mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=( 1, 2))
+            # For each batch, calculate the driver fraction and then average
+            # First, get unique current values (should be the same for all batches)
+            unique_current = np.unique(I_ext)
+            # Calculate driver fraction by properly handling batch dimension
+            b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
             # Save
             # t0 = time.perf_counter()
             metadata = {
@@ -383,8 +400,8 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             arrays_to_save = {
                 "pruned_S_hist_batch": pruned_S_hist_batch,
                 "base_S_hist": base_S_hist,
-                "base_syn_hist": base_syn_hist,
-                "pruned_syn_hist": pruned_syn_hist,
+                "base_driver_fraction": base_driver_fraction,
+                "batch_driver_fraction": b_driver_fraction,
                 "W0": initial_state.W,
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types
