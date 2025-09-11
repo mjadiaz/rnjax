@@ -170,7 +170,11 @@ def global_metrics_directed(G, weight='weight'):
     # 5. Transitivity (global clustering)
     trans = nx.transitivity(G.to_undirected())  # same note as above
 
+    # density
+    density = nx.density(G)
+
     return {
+        "density": density,
         "global_efficiency": global_eff,
         "avg_betweenness": avg_bet,
         "avg_closeness": avg_close,

@@ -216,30 +216,31 @@ if __name__ == '__main__':
     """
 
     # Define the structure types and their corresponding keys
+    rng = np.random.default_rng()
     experiment_configs = [
-        ('SF_receiver_sparse', 42, 256),
-        ('SF_receiver_intermediate', 37, 25),
-        ('SF_receiver_dense', 64, 78),
-        ('SF_broadcaster_sparse', 123, 89),
-        ('SF_broadcaster_intermediate', 156, 234),
-        ('SF_broadcaster_dense', 91, 167),
-        ('SF_balanced_sparse', 203, 145),
-        ('SF_balanced_intermediate', 178, 92),
-        ('SF_balanced_dense', 67, 189)
+        ('SF_receiver_sparse',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_receiver_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_receiver_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_broadcaster_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_broadcaster_intermediate',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_broadcaster_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_balanced_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_balanced_intermediate',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SF_balanced_dense',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save_test' + '_' + strtr
+        save_name = 'save/'  + strtr
 
         attack_params = {
             'n_nodes': 200,
             'T_global': 2000, #ms
-            'batch_size': 50,
+            'batch_size': 20,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 2
+            'number_of_graphs': 20
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_scale_free)

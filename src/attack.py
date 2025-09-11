@@ -13,6 +13,7 @@ import gc
 from networks import (
     NetworkParams, NetworkState, STDPParams, STDPState,
     run_base_network, run_stdp_network,
+    run_base_network_syn, run_stdp_network_syn,
     create_network_params, create_initial_state,
     create_random_network, create_stdp_params, create_initial_stdp_state,
     IzhikevichNeuron
@@ -154,8 +155,8 @@ def run_attacked_network(params: NetworkParams, state: NetworkState, I_ext: jnp.
 
 def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fraction=0.1, nkey=42, save_path="save" ):
 
-    run_base_network_jit = jax.jit(run_base_network)
-    run_base_network_batch = jax.jit(jax.vmap(run_base_network))
+    run_base_network_jit = jax.jit(run_base_network_syn)
+    run_base_network_batch = jax.jit(jax.vmap(run_base_network_syn))
 
     base_dir = Path(save_path).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -172,7 +173,7 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             #t0 = time.perf_counter()
             key = random.PRNGKey(nkey + i)
             params = create_network_params(neurons)
-            initial_state = create_initial_state(neurons, G)
+            initial_state = create_initial_state(neurons, G, add_noise=True)
             N = params.N
             # E == 1, I == 0
             neuron_types = jnp.array([int(n.neuron_type == "E") for n in neurons])
@@ -187,7 +188,7 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             )
             #barrier(base_out)
             # t1 = time.perf_counter()
-            base_final_state, base_V_hist, base_S_hist = base_out
+            base_final_state, base_V_hist, base_S_hist, base_syn_hist = base_out
             # print(f"Base execution completed in {t1 - t0:.4f} seconds")
 
             # Create batch of removal indices
@@ -233,7 +234,7 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             )
             #barrier(pruned_out)
             # t1 = time.perf_counter()
-            (pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch) = pruned_out
+            (pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
             print(f"Batched execution completed base, i:{i}")
 
@@ -251,6 +252,8 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
             arrays_to_save = {
                 "pruned_S_hist_batch": pruned_S_hist_batch,
                 "base_S_hist": base_S_hist,
+                "base_syn_hist": base_syn_hist,
+                "pruned_syn_hist": pruned_syn_hist,
                 "W0": initial_state.W,
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types
@@ -278,10 +281,10 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
 
 def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fraction=0.1, nkey=42, save_path="save" ):
 
-    run_stdp_network_jit = jax.jit(run_stdp_network)
-    run_stdp_network_batch = jax.jit(jax.vmap(run_stdp_network))
+    run_stdp_network_jit = jax.jit(run_stdp_network_syn)
+    run_stdp_network_batch = jax.jit(jax.vmap(run_stdp_network_syn))
 
-    base_dir = Path("save_ckpts_big").resolve()
+    base_dir = Path(save_path).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
 
     #mngr = ocp.CheckpointManager(base_dir)
@@ -296,7 +299,7 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             #t0 = time.perf_counter()
             key = random.PRNGKey(nkey + i)
             params = create_network_params(neurons)
-            initial_state = create_initial_state(neurons, G)
+            initial_state = create_initial_state(neurons, G, add_noise=True)
             N = params.N
             stdp_params = create_stdp_params(params, initial_state.W)
             initial_stdp_state = create_initial_stdp_state(N)
@@ -314,7 +317,7 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             )
             #barrier(base_out)
             # t1 = time.perf_counter()
-            base_final_state, base_final_stdp_state, base_V_hist, base_S_hist = base_out
+            base_final_state, base_final_stdp_state, base_V_hist, base_S_hist, base_syn_hist = base_out
             # print(f"Base execution completed in {t1 - t0:.4f} seconds")
 
             # Create batch of removal indices
@@ -362,7 +365,7 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             #barrier(pruned_out)
             # t1 = time.perf_counter()
             (pruned_final_states_batch, pruned_final_stdp_states_batch,
-            pruned_V_hist_batch, pruned_S_hist_batch) = pruned_out
+            pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
             # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
             print(f"Batched execution completed stdp, i:{i}")
 
@@ -380,6 +383,8 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
             arrays_to_save = {
                 "pruned_S_hist_batch": pruned_S_hist_batch,
                 "base_S_hist": base_S_hist,
+                "base_syn_hist": base_syn_hist,
+                "pruned_syn_hist": pruned_syn_hist,
                 "W0": initial_state.W,
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types

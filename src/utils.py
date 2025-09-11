@@ -164,7 +164,7 @@ def plot_network_distributions(G, time, R_t):
     plt.show()
     return fig
 
-def plot_raster(S_hist, neurons, W, T_total, title="Spike raster", apply_style=True):
+def plot_raster(S_hist, neurons, W, T_total, title="Spike raster", apply_style=True, mode='neurons'):
     """
     Standalone spike raster (scatter) using the same E/I ordering as your merged plot.
 
@@ -182,7 +182,7 @@ def plot_raster(S_hist, neurons, W, T_total, title="Spike raster", apply_style=T
     if apply_style:
         plot_style_one()
 
-    col_order, split_index, _ = get_neuron_order(neurons, W)
+    col_order, split_index, _ = get_neuron_order(W, neurons, mode)
     N = len(neurons)
 
     # Determine time axis from number of timesteps
@@ -264,14 +264,15 @@ def plot_raster_simple(S_hist, T_total, title="Spike raster", apply_style=True):
     return fig, ax_raster
 
 
-
-def get_neuron_order(neurons, W):
+def get_neuron_order(W, exc_info=None, mode='neurons'):
     """
     Returns ordering and sorted connectivity matrix based on excitatory/inhibitory (E/I) split.
 
     Args:
-        neurons (list): list of neuron objects, each with attribute `neuron_type` ('E' or 'I')
         W (array-like): (N x N) weight/connectivity matrix
+        exc_info (list or array): Either list of neuron objects (mode='neurons') or
+                                boolean mask of excitatory neurons (mode='mask')
+        mode (str): How to interpret exc_info - 'neurons' or 'mask'
 
     Returns:
         col_order (np.ndarray): indices with all excitatory neurons first, then inhibitory
@@ -280,14 +281,32 @@ def get_neuron_order(neurons, W):
     """
     W = np.asarray(W).copy()
 
-    # Build excitatory mask from neuron metadata
-    exc_mask = np.array(
-        [getattr(n, "neuron_type", None) == "E" for n in neurons],
-        dtype=bool
-    )
+    # Get excitatory mask from either neurons or provided mask
+    if exc_info is None:
+        raise ValueError("Must provide either neurons or excitatory mask")
+
+    if mode == 'neurons':
+        # Build excitatory mask from neuron metadata
+        exc_mask = np.array(
+            [getattr(n, "neuron_type", None) == "E" for n in exc_info],
+            dtype=bool
+        )
+    elif mode == 'mask':
+        # Use provided excitatory mask
+        exc_mask = np.asarray(exc_info, dtype=bool)
+    else:
+        raise ValueError(f"Unknown mode: {mode}. Use 'neurons' or 'mask'")
+
+    # Check if exc_mask is an integer type and convert to boolean if needed
+    if isinstance(exc_mask, int):
+        exc_mask = bool(exc_mask)
+
+    # Make sure we have a proper boolean array
+    if not isinstance(exc_mask, np.ndarray) or exc_mask.dtype != bool:
+        raise ValueError("Excitatory mask must be a boolean array")
 
     col_order = np.r_[np.where(exc_mask)[0], np.where(~exc_mask)[0]]
-    split_index = exc_mask.sum()
+    split_index = np.sum(exc_mask)
 
     # Reorder rows and columns consistently
     W_sorted = W[np.ix_(col_order, col_order)]

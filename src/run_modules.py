@@ -23,8 +23,11 @@ def test_attack_pipeline_seq_base(structure, save_path, attack_params, gn_fn):
     attack_fraction = attack_params['attack_fraction']
     attack_key = attack_params['attack_key']
 
+    dt = 0.25
+    steps = int(T_global / dt)
+
     G_list, neurons_list = gn_fn(structure, attack_params)
-    I_ext = jnp.ones((T_global, n_nodes)) * 10
+    I_ext = jnp.ones((steps, n_nodes)) * 10
 
     run_attack_batch_base(
         G_list,
@@ -49,8 +52,11 @@ def test_attack_pipeline_seq_stdp(structure, save_path, attack_params, gn_fn):
     attack_fraction = attack_params['attack_fraction']
     attack_key = attack_params['attack_key']
 
+    dt = 0.25
+    steps = int(T_global / dt)
+
     G_list, neurons_list = gn_fn(structure, attack_params)
-    I_ext = jnp.ones((T_global, n_nodes)) * 10
+    I_ext = jnp.ones((steps, n_nodes)) * 10
 
     run_attack_batch_stdp(
         G_list,

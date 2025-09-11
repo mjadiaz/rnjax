@@ -47,20 +47,22 @@ structures = {
 
 if __name__ == "__main__":
     # Define the structure types and their corresponding keys
+    # Generate random seeds for experiments
+    rng = np.random.default_rng()
     experiment_configs = [
-        ('ER_sparse', 42, 256),
-        ('ER_intermediate', 37, 25),
-        ('ER_dense', 64, 78)
+        ('ER_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('ER_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('ER_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save_test' + '_' + strtr
+        save_name = 'save/'  + strtr
 
         attack_params = {
-            'n_nodes': 200,
-            'T_global': 2000, #ms
-            'batch_size': 50,
+            'n_nodes': 220,
+            'T_global': 1000, #ms
+            'batch_size': 20,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,

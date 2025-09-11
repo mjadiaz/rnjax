@@ -195,30 +195,32 @@ if __name__ == '__main__':
     """
 
     # Define the structure types and their corresponding keys
+    # Generate random seeds for experiments
+    rng = np.random.default_rng()
     experiment_configs = [
-        ('SBM_sparse_4', 42, 256),
-        ('SBM_sparse_3', 37, 25),
-        ('SBM_sparse_2', 64, 78),
-        ('SBM_intermediate_4', 123, 89),
-        ('SBM_intermediate_3', 156, 234),
-        ('SBM_intermediate_2', 91, 167),
-        ('SBM_dense_4', 203, 145),
-        ('SBM_dense_3', 178, 92),
-        ('SBM_dense_2', 67, 189)
+        ('SBM_sparse_4',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_sparse_3', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_sparse_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_intermediate_4',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_intermediate_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_intermediate_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_dense_4', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_dense_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('SBM_dense_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save_test' + '_' + strtr
+        save_name = 'save/'  + strtr
 
         attack_params = {
             'n_nodes': 200,  # Changed from 500 to match other experiments
             'T_global': 2000, #ms
-            'batch_size': 50,
+            'batch_size': 20,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 2  # Changed from 1 to match other experiments
+            'number_of_graphs': 20  # Changed from 1 to match other experiments
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_stochastic_block_model)
