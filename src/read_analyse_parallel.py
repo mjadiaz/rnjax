@@ -307,17 +307,40 @@ def main(max_workers=None, batch_size=20, I_ext=10.0, base_dir=None):
 
 if __name__ == "__main__":
     import click
-
     @click.command()
     @click.option('--base_dir', help='Base directory to process')
-    def cli(base_dir):
-        if base_dir:
+    @click.option('--step', type=int, help='Step to process')
+    @click.option('--batch_size', type=int, default=20, help='Batch size')
+    @click.option('--I_ext', type=float, default=10.0, help='External current value')
+    @click.option('--max_workers', type=int, default=None, help='Maximum number of workers for parallel processing')
+    def cli(base_dir, step, batch_size, i_ext, max_workers):
+        if step is not None and base_dir:
+            # Use process_single_step if step is provided
+            success = process_single_step(
+                step=step,
+                base_dir=Path(base_dir),
+                batch_size=batch_size,
+                I_ext=i_ext,
+                max_workers=max_workers
+            )
+            logger.info(f"Processing step {step}: {'Success' if success else 'Failed'}")
+        elif base_dir:
             # Use the specified base directory
-            successful, failed = main(base_dir=Path(base_dir))
+            successful, failed = main(
+                base_dir=Path(base_dir),
+                batch_size=batch_size,
+                I_ext=i_ext,
+                max_workers=max_workers
+            )
         else:
             # Process all directories in 'save'
             all_base_dirs = get_save_dirs('save')
             for base_dir in all_base_dirs:
-                successful, failed = main(base_dir=base_dir)
+                successful, failed = main(
+                    base_dir=base_dir,
+                    batch_size=batch_size,
+                    I_ext=i_ext,
+                    max_workers=max_workers
+                )
 
     cli()
