@@ -10,7 +10,7 @@ def plot_style_one():
     # Single-column Nature width ≈ 90 mm → ~3.54 in
     mpl.rcParams.update({
         "figure.dpi": 300,
-        "savefig.dpi": 300,
+        #"savefig.dpi": 300,
         "figure.figsize": (4.8, 1.5),   # small, compact
         "font.size": 7,                  # 7–8 pt typical
         "axes.titlesize": 7,
@@ -80,7 +80,7 @@ def plot_adjacency_matrix(G, attack_nodes=None, weights_range=None, figsize=(4,4
     fig = plt.figure(figsize=figsize)
 
     # Main matrix plot (transposed for conventional orientation)
-    im = plt.imshow(adj_matrix.T,
+    im = plt.imshow(adj_matrix,
                    cmap=cmap,
                    vmin=weights_low,
                    vmax=weights_high,
@@ -203,7 +203,7 @@ def plot_raster(S_hist, neurons, W, T_total, title="Spike raster", apply_style=T
 
     ax_raster.scatter(
         spike_times, spike_neurons,
-        s=0.1, c='k', marker='o', linewidths=0
+        s=0.5, c='k', marker='o', linewidths=0
     )
     ax_raster.set_xlabel('Time (ms)')
     ax_raster.set_ylabel('Neuron ID')
