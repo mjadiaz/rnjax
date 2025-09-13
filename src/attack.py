@@ -23,6 +23,29 @@ from pathlib import Path
 
 from jax import tree_util as jtu
 
+# def move_to_host_if_needed(pytree):
+#     # Only move if at least one array is not on CPU
+#     devices = jax.tree.leaves(jax.tree.map(lambda x: x.device.platform, pytree))
+#     if any(d != 'cpu' for d in devices):
+#         return jax.device_get(pytree)
+#     return pytree
+
+
+def move_to_host_if_needed(pytree):
+    # Only move if at least one array is not on CPU
+    def get_device_platform(x):
+        if hasattr(x, 'device') and hasattr(x.device, 'platform'):
+            return x.device.platform
+        else:
+            print(x)
+            return 'cpu'  # Non-JAX arrays are considered to be on CPU
+
+    devices = jax.tree.leaves(jax.tree.map(get_device_platform, pytree))
+    if any(d != 'cpu' for d in devices):
+        return jax.device_get(pytree)
+    return pytree
+
+
 # ---------- timing helper ----------
 def barrier(tree):
     # Forces device work to finish so your timing is accurate.
@@ -266,9 +289,12 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types
             }
+
+            state_host = move_to_host_if_needed(arrays_to_save)
+
             mngr.save(i,
                 args=ocp.args.Composite(
-                arrays=ocp.args.StandardSave(arrays_to_save),
+                arrays=ocp.args.StandardSave(state_host),
                 metadata=ocp.args.JsonSave(metadata)
             ))
             # t1 = time.perf_counter()
@@ -406,9 +432,12 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
                 "removed_ids": remove_idx_batch,
                 "neuron_type": neuron_types
             }
+
+            state_host = move_to_host_if_needed(arrays_to_save)
+
             mngr.save(i,
                 args=ocp.args.Composite(
-                arrays=ocp.args.StandardSave(arrays_to_save),
+                arrays=ocp.args.StandardSave(state_host),
                 metadata=ocp.args.JsonSave(metadata)
             ))
             # t1 = time.perf_counter()

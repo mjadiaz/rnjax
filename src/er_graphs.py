@@ -60,9 +60,9 @@ if __name__ == "__main__":
         save_name = 'save/'  + strtr
 
         attack_params = {
-            'n_nodes': 220,
-            'T_global': 1000, #ms
-            'batch_size': 20,
+            'n_nodes': 500,
+            'T_global': 2000, #ms
+            'batch_size': 60,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
