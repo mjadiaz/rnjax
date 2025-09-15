@@ -1,32 +1,44 @@
-from networkx.readwrite.json_graph import adjacency
-import orbax.checkpoint as ocp
-import jax
-import numpy as np
-from jax import numpy as jnp
-from pathlib import Path
-from attack import keep_indices
-import matplotlib.pyplot as plt
-from measures import entropic_measures,lz_complexity_measures, sample_entropy_measures, global_metrics_directed
-from utils import plot_raster_simple
-from tqdm import tqdm
-import networkx as nx
-import time
-from importlib import metadata
-import pandas as pd
-import logging
-import concurrent.futures
-import multiprocessing
-from functools import partial
+#!/usr/bin/env python3
+"""
+Improved version of read_analyse_parallel.py
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s"
+This script provides functionality for analyzing neural network checkpoints
+in parallel, processing batches of data to calculate various complexity and
+network metrics.
+"""
+import concurrent.futures
+import logging
+import multiprocessing
+import time
+from functools import partial
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any, Union
+
+import click
+import jax
+import networkx as nx
+import numpy as np
+import pandas as pd
+from jax import numpy as jnp
+import orbax.checkpoint as ocp
+from tqdm import tqdm
+
+# Local imports
+from attack import keep_indices
+from measures import entropic_measures, lz_complexity_measures, sample_entropy_measures, global_metrics_directed
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
+
 logger = logging.getLogger(__name__)
 
+# ===== Utility Functions =====
 
-
-
-def get_save_dirs(base_dir_path: str) -> list:
+def get_save_dirs(base_dir_path: str) -> List[Path]:
     """
     Returns a list of all subdirectories in the given base directory.
 
@@ -38,52 +50,101 @@ def get_save_dirs(base_dir_path: str) -> list:
     """
     base_dir = Path(base_dir_path).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
+    return [d for d in base_dir.iterdir() if d.is_dir()]
 
-    # Get all subdirectories
-    subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
 
-    return subdirs
+def take_submatrix(matrix: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """
+    Extract a submatrix using the given indices.
 
-def take_submatrix(M: np.ndarray, idx: np.ndarray) -> np.ndarray:
-    return M[np.ix_(idx, idx)]
+    Args:
+        matrix: The original matrix
+        indices: Indices to keep
 
-def process_batch(batch, base_S_hist, pruned_S_hist_batch, W0, removed_ids, n_nodes, I_ext):
+    Returns:
+        Submatrix containing only the specified indices
+    """
+    return matrix[np.ix_(indices, indices)]
+
+
+# ===== Core Processing Functions =====
+
+def process_batch(
+    batch_idx: int,
+    base_S_hist: np.ndarray,
+    pruned_S_hist_batch: np.ndarray,
+    W0: np.ndarray,
+    removed_ids: np.ndarray,
+    n_nodes: int,
+    I_ext: float
+) -> Optional[Dict[str, Any]]:
     """
     Process a single batch - modified for parallel execution
+
+    Args:
+        batch_idx: Index of the batch to process
+        base_S_hist: Base spike history
+        pruned_S_hist_batch: Pruned spike history for all batches
+        W0: Weight matrix
+        removed_ids: IDs of removed neurons for all batches
+        n_nodes: Number of nodes
+        I_ext: External input current
+
+    Returns:
+        Dictionary containing processed metrics or None if processing failed
     """
     try:
-        take_idx = keep_indices(removed_ids[batch], n_nodes)
+        # Get indices to keep after pruning
+        take_idx = keep_indices(removed_ids[batch_idx], n_nodes)
 
-        # Needs to be numpy for measure libs infomeasure and Antropy
+        # Convert to numpy for measure libraries
         pre_attack_S = np.array(base_S_hist)
-        post_attack_S = np.array(pruned_S_hist_batch[batch])
+        post_attack_S = np.array(pruned_S_hist_batch[batch_idx])
 
+        # Extract the submatrix corresponding to remaining neurons
         post_attack_W = take_submatrix(W0, take_idx)
 
+        # Calculate various metrics
         emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
         lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
         sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
 
+        # Network analysis
         post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
         gm = global_metrics_directed(post_G_reconstructed)
 
-        #mean_abs_syn = np.mean(np.abs(pruned_syn_hist[batch]))      # average across time & neurons
-        #b_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
-
         return {
-            'batch': batch,
+            'batch': batch_idx,
             'emsrs': emsrs,
             'lz': lz,
             'sp': sp,
             'gm': gm,
-       #     'drf': {'batch_driver_fraction': b_driver_fraction[batch]}
         }
     except Exception as e:
-        logger.error(f"Error processing batch {batch}: {e}")
+        logger.error(f"Error processing batch {batch_idx}: {e}")
         return None
 
-def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=None):
-    """Process a single step with parallel batch processing"""
+
+def process_single_step(
+    step: int,
+    base_dir: Path,
+    batch_size: int = 20,
+    I_ext: float = 10.0,
+    max_workers: Optional[int] = None
+) -> bool:
+    """
+    Process a single checkpoint step with parallel batch processing
+
+    Args:
+        step: Step number to process
+        base_dir: Base directory containing checkpoints
+        batch_size: Expected batch size
+        I_ext: External input current
+        max_workers: Maximum number of parallel workers (defaults to CPU count)
+
+    Returns:
+        True if processing succeeded, False otherwise
+    """
     logger.info(f"Processing step {step}")
 
     # Set default max_workers to number of CPU cores
@@ -122,13 +183,10 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             n_nodes = restored.metadata['parameters']['N']
             base_driver_fraction = restored.arrays['base_driver_fraction']
             batch_driver_fraction = restored.arrays['batch_driver_fraction']
-            # Calculate base metrics
+
+            # Calculate base metrics for original network
             pre_G_reconstructed = nx.from_numpy_array(W0, create_using=nx.DiGraph)
             gm0 = global_metrics_directed(pre_G_reconstructed)
-
-            #base_syn_hist = restored.arrays['base_syn_hist']
-            #mean_abs_syn = np.mean(np.abs(base_syn_hist))
-            #base_driver_fraction = mean_abs_syn / (mean_abs_syn + I_ext)
 
             # Get actual batch size from data
             actual_batch_size = pruned_S_hist_batch.shape[0]
@@ -143,7 +201,6 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
                 pruned_S_hist_batch=pruned_S_hist_batch,
                 W0=W0,
                 removed_ids=removed_ids,
-                #b_driver_fraction=b_driver_fraction,
                 n_nodes=n_nodes,
                 I_ext=I_ext
             )
@@ -155,8 +212,8 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
                 # Submit all batch jobs
                 batch_indices = list(range(batch_size))
                 future_to_batch = {
-                    executor.submit(process_batch_partial, batch): batch
-                    for batch in batch_indices
+                    executor.submit(process_batch_partial, batch_idx): batch_idx
+                    for batch_idx in batch_indices
                 }
 
                 # Collect results with progress bar
@@ -183,8 +240,8 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             # Sort results by batch number to maintain order
             results.sort(key=lambda x: x['batch'])
 
-            time_end = time.time()
-            logger.info(f"Step {step} processing time: {time_end - time_start:.2f} seconds")
+            processing_time = time.time() - time_start
+            logger.info(f"Step {step} processing time: {processing_time:.2f} seconds")
             logger.info(f"Successfully processed {len(results)}/{batch_size} batches")
 
             if not results:
@@ -196,26 +253,29 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
             all_lz = [r['lz'] for r in results]
             all_sp = [r['sp'] for r in results]
             all_gm = [r['gm'] for r in results]
-            #all_drf = [r['drf'] for r in results]
 
-            # Create DataFrame
+            # Create DataFrame from results
             all_metrics = [all_emsrs, all_lz, all_sp, all_gm]
             collect_rows = []
 
-            for b in range(len(results)):
-                all_metrics_batch = [all_metrics[m][b] for m in range(len(all_metrics))]
+            for b_idx, result in enumerate(results):
+                # Merge all metrics for this batch
+                all_metrics_batch = [all_metrics[m][b_idx] for m in range(len(all_metrics))]
                 merged = {k: v for d in all_metrics_batch for k, v in d.items()}
-                merged['step'] = step  # Add step information
-                merged['batch_id'] = results[b]['batch']  # Add original batch ID
+
+                # Add metadata
+                merged['step'] = step
+                merged['batch_id'] = result['batch']
                 collect_rows.append(merged)
 
             df = pd.DataFrame(collect_rows)
 
-            # Add base repeated quantities
+            # Add base network metrics with _pre suffix
             gm0_renamed = {key + "_pre": value for key, value in gm0.items()}
             for col, val in gm0_renamed.items():
                 df[col] = val
 
+            # Add driver fractions
             df['base_driver_fraction'] = np.unique(base_driver_fraction)[0]
             df['batch_driver_fraction'] = batch_driver_fraction
 
@@ -229,8 +289,15 @@ def process_single_step(step, base_dir, batch_size=20, I_ext=10.0, max_workers=N
         logger.error(f"Error processing step {step}: {e}")
         return False
 
-def create_combined_metrics(base_dir, successful_steps):
-    """Create a combined metrics file from all successful steps"""
+
+def create_combined_metrics(base_dir: Path, successful_steps: List[int]) -> None:
+    """
+    Create a combined metrics file from all successful steps
+
+    Args:
+        base_dir: Base directory containing step subdirectories
+        successful_steps: List of step numbers that were successfully processed
+    """
     combined_data = []
 
     logger.info("Creating combined metrics file...")
@@ -254,18 +321,22 @@ def create_combined_metrics(base_dir, successful_steps):
     else:
         logger.warning("No data available for combined metrics file")
 
-def resave_to_host(base_dir):
-    """Check if restore is on GPU then resave to host
-    ex: save/save_test_ER_dense_stdp """
-    # # Example usage
-    # if base_dir is None:
-    #     base_dir.mkdir(parents=True, exist_ok=True)
 
+def resave_to_host(base_dir: Path) -> Tuple[List[int], List[int]]:
+    """
+    Check if checkpoint data is on GPU then resave to host
+
+    Args:
+        base_dir: Base directory containing checkpoints
+
+    Returns:
+        Tuple of (successful_steps, failed_steps)
+    """
     base_dir = Path(base_dir).resolve()
     n_of_directories = len([d for d in base_dir.iterdir() if d.is_dir()])
 
     logger.info(f"Found {n_of_directories} directories to process")
-    print(n_of_directories)
+
     successful_steps = []
     failed_steps = []
 
@@ -315,12 +386,10 @@ def resave_to_host(base_dir):
                     successful_steps.append(step)
                 else:
                     logger.info(f"Step {step} data already on host/CPU")
-                    print(f"Step {step} data already on host/CPU")
-
                     successful_steps.append(step)
 
-                time_end = time.time()
-                logger.info(f"Step {step} processing time: {time_end - time_start:.2f} seconds")
+                processing_time = time.time() - time_start
+                logger.info(f"Step {step} processing time: {processing_time:.2f} seconds")
 
         except Exception as e:
             logger.error(f"Error processing step {step}: {e}")
@@ -338,10 +407,24 @@ def resave_to_host(base_dir):
 
     return successful_steps, failed_steps
 
-def main_sequential(batch_size=20, I_ext=10.0, base_dir=None):
-    """Main function to process all steps sequentially (no parallel processing)"""
 
-    # Example usage
+def main_sequential(
+    batch_size: int = 20,
+    I_ext: float = 10.0,
+    base_dir: Optional[Path] = None
+) -> Tuple[List[int], List[int]]:
+    """
+    Main function to process all steps sequentially (no parallel processing)
+
+    Args:
+        batch_size: Number of batches per step
+        I_ext: External input current
+        base_dir: Base directory containing checkpoints
+
+    Returns:
+        Tuple of (successful_steps, failed_steps)
+    """
+    # Set default base directory if not provided
     if base_dir is None:
         base_dir = Path("save/save_test_ER_dense_stdp").resolve()
         base_dir.mkdir(parents=True, exist_ok=True)
@@ -417,7 +500,7 @@ def main_sequential(batch_size=20, I_ext=10.0, base_dir=None):
                     for batch in range(batch_size):
                         try:
                             result = process_batch(
-                                batch=batch,
+                                batch_idx=batch,
                                 base_S_hist=base_S_hist,
                                 pruned_S_hist_batch=pruned_S_hist_batch,
                                 W0=W0,
@@ -437,8 +520,8 @@ def main_sequential(batch_size=20, I_ext=10.0, base_dir=None):
                 if failed_batches:
                     logger.warning(f"Failed batches in step {step}: {failed_batches}")
 
-                time_end = time.time()
-                logger.info(f"Step {step} processing time: {time_end - time_start:.2f} seconds")
+                processing_time = time.time() - time_start
+                logger.info(f"Step {step} processing time: {processing_time:.2f} seconds")
                 logger.info(f"Successfully processed {len(results)}/{batch_size} batches")
 
                 if not results:
@@ -483,12 +566,12 @@ def main_sequential(batch_size=20, I_ext=10.0, base_dir=None):
             logger.error(f"Error processing step {step}: {e}")
             failed_steps.append(step)
 
-    total_end_time = time.time()
+    total_processing_time = time.time() - total_start_time
 
     # Summary
     logger.info("="*50)
     logger.info("SEQUENTIAL PROCESSING COMPLETE!")
-    logger.info(f"Total time: {total_end_time - total_start_time:.2f} seconds")
+    logger.info(f"Total time: {total_processing_time:.2f} seconds")
     logger.info(f"Successful steps ({len(successful_steps)}): {successful_steps}")
     if failed_steps:
         logger.warning(f"Failed steps ({len(failed_steps)}): {failed_steps}")
@@ -502,10 +585,26 @@ def main_sequential(batch_size=20, I_ext=10.0, base_dir=None):
 
     return successful_steps, failed_steps
 
-def main(max_workers=None, batch_size=20, I_ext=10.0, base_dir=None):
-    """Main function to process all steps with parallel batch processing"""
 
-    # Example usage
+def main_parallel(
+    max_workers: Optional[int] = None,
+    batch_size: int = 20,
+    I_ext: float = 10.0,
+    base_dir: Optional[Path] = None
+) -> Tuple[List[int], List[int]]:
+    """
+    Main function to process all steps with parallel batch processing
+
+    Args:
+        max_workers: Maximum number of parallel workers (defaults to CPU count)
+        batch_size: Number of batches per step
+        I_ext: External input current
+        base_dir: Base directory containing checkpoints
+
+    Returns:
+        Tuple of (successful_steps, failed_steps)
+    """
+    # Set default base directory if not provided
     if base_dir is None:
         base_dir = Path("save/save_test_ER_dense_stdp").resolve()
         base_dir.mkdir(parents=True, exist_ok=True)
@@ -538,12 +637,12 @@ def main(max_workers=None, batch_size=20, I_ext=10.0, base_dir=None):
         else:
             failed_steps.append(step)
 
-    total_end_time = time.time()
+    total_processing_time = time.time() - total_start_time
 
     # Summary
     logger.info("="*50)
-    logger.info("PROCESSING COMPLETE!")
-    logger.info(f"Total time: {total_end_time - total_start_time:.2f} seconds")
+    logger.info("PARALLEL PROCESSING COMPLETE!")
+    logger.info(f"Total time: {total_processing_time:.2f} seconds")
     logger.info(f"Successful steps ({len(successful_steps)}): {successful_steps}")
     if failed_steps:
         logger.warning(f"Failed steps ({len(failed_steps)}): {failed_steps}")
@@ -557,56 +656,147 @@ def main(max_workers=None, batch_size=20, I_ext=10.0, base_dir=None):
 
     return successful_steps, failed_steps
 
-if __name__ == "__main__":
-    import click
-    @click.command()
-    @click.option('--base_dir', help='Base directory to process')
-    @click.option('--step', type=int, help='Step to process')
-    @click.option('--batch_size', type=int, default=20, help='Batch size')
-    @click.option('--I_ext', type=float, default=10.0, help='External current value')
-    @click.option('--max_workers', type=int, default=None, help='Maximum number of workers for parallel processing')
-    @click.option('--resave', is_flag=True, help='Move GPU data to host/CPU and resave')
-    def cli(base_dir, step, batch_size, i_ext, max_workers, resave):
-        if resave:
-            # Use resave_to_host function
-            if base_dir:
-                successful, failed = resave_to_host(
-                    base_dir=Path(base_dir)
-                )
-            else:
-                # Process all directories in 'save'
-                all_base_dirs = get_save_dirs('save')
-                for base_dir in all_base_dirs:
-                    successful, failed = resave_to_host(
-                        base_dir=base_dir
-                    )
-        elif step is not None and base_dir:
-            # Use process_single_step if step is provided
-            success = process_single_step(
-                step=step,
-                base_dir=Path(base_dir),
+
+# ===== Command Line Interface =====
+
+@click.group(help="Neural network checkpoint analysis tools")
+def cli():
+    """Main CLI entry point with command groups"""
+    pass
+
+
+@cli.command("process", help="Process checkpoint data with various options")
+@click.option(
+    '--base-dir', '-d',
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help='Base directory containing checkpoints'
+)
+@click.option(
+    '--step', '-s',
+    type=int,
+    help='Specific step to process (processes all steps if not specified)'
+)
+@click.option(
+    '--batch-size', '-b',
+    type=int,
+    default=20,
+    help='Batch size (default: 20)'
+)
+@click.option(
+    '--i-ext', '-i',
+    type=float,
+    default=10.0,
+    help='External current value (default: 10.0)'
+)
+@click.option(
+    '--parallel/--sequential',
+    default=True,
+    help='Use parallel processing (default) or sequential processing'
+)
+@click.option(
+    '--workers', '-w',
+    type=int,
+    default=None,
+    help='Maximum number of workers for parallel processing (default: CPU count)'
+)
+def process_command(base_dir, step, batch_size, i_ext, parallel, workers):
+    """Process checkpoint data with various options"""
+    if base_dir is None:
+        # Process all directories in 'save' if no base_dir specified
+        all_base_dirs = get_save_dirs('save')
+        if not all_base_dirs:
+            logger.error("No directories found in 'save' folder")
+            return
+
+        for dir_path in all_base_dirs:
+            logger.info(f"Processing directory: {dir_path}")
+            _process_dir(dir_path, step, batch_size, i_ext, parallel, workers)
+    else:
+        _process_dir(base_dir, step, batch_size, i_ext, parallel, workers)
+
+
+def _process_dir(base_dir, step, batch_size, i_ext, parallel, workers):
+    """Helper function to process a single directory"""
+    if step is not None:
+        # Process single step
+        success = process_single_step(
+            step=step,
+            base_dir=base_dir,
+            batch_size=batch_size,
+            I_ext=i_ext,
+            max_workers=workers if parallel else 1
+        )
+        logger.info(f"Processing step {step}: {'Success' if success else 'Failed'}")
+    else:
+        # Process all steps
+        if parallel:
+            successful, failed = main_parallel(
+                base_dir=base_dir,
                 batch_size=batch_size,
                 I_ext=i_ext,
-                max_workers=max_workers
-            )
-            logger.info(f"Processing step {step}: {'Success' if success else 'Failed'}")
-        elif base_dir:
-            # Use the specified base directory
-            successful, failed = main(
-                base_dir=Path(base_dir),
-                batch_size=batch_size,
-                I_ext=i_ext,
-                max_workers=max_workers
+                max_workers=workers
             )
         else:
-            # Process all directories in 'save'
-            all_base_dirs = get_save_dirs('save')
-            for base_dir in all_base_dirs:
-                successful, failed = main(
-                    base_dir=base_dir,
-                    batch_size=batch_size,
-                    I_ext=i_ext,
-                    max_workers=max_workers
-                )
+            successful, failed = main_sequential(
+                base_dir=base_dir,
+                batch_size=batch_size,
+                I_ext=i_ext
+            )
 
+
+@cli.command("resave", help="Move GPU data to host/CPU and resave")
+@click.option(
+    '--base-dir', '-d',
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help='Base directory containing checkpoints'
+)
+def resave_command(base_dir):
+    """Resave checkpoint data from GPU to CPU"""
+    if base_dir is None:
+        # Process all directories in 'save' if no base_dir specified
+        all_base_dirs = get_save_dirs('save')
+        if not all_base_dirs:
+            logger.error("No directories found in 'save' folder")
+            return
+
+        for dir_path in all_base_dirs:
+            logger.info(f"Resaving directory: {dir_path}")
+            successful, failed = resave_to_host(base_dir=dir_path)
+    else:
+        successful, failed = resave_to_host(base_dir=base_dir)
+
+
+@cli.command("combine", help="Combine metrics from multiple steps")
+@click.option(
+    '--base-dir', '-d',
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    required=True,
+    help='Base directory containing step subdirectories with metrics.csv files'
+)
+def combine_command(base_dir):
+    """Combine metrics from multiple steps into a single file"""
+    # Find all step directories that have metrics.csv
+    steps_with_metrics = []
+    for item in base_dir.iterdir():
+        if item.is_dir() and item.name.isdigit():
+            metrics_file = item / 'metrics.csv'
+            if metrics_file.exists():
+                steps_with_metrics.append(int(item.name))
+
+    if not steps_with_metrics:
+        logger.error(f"No step directories with metrics.csv found in {base_dir}")
+        return
+
+    logger.info(f"Found {len(steps_with_metrics)} steps with metrics files")
+    create_combined_metrics(base_dir, steps_with_metrics)
+
+
+if __name__ == "__main__":
+    # Show version info at startup
+    try:
+        logger.info(f"Python {multiprocessing.cpu_count()}-core environment")
+    except Exception:
+        pass
+
+    # Run CLI
     cli()
