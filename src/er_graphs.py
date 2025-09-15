@@ -60,7 +60,7 @@ if __name__ == "__main__":
         save_name = 'save/'  + strtr
 
         attack_params = {
-            'n_nodes': 200,
+            'n_nodes': 500,
             'T_global': 2000, #ms
             'batch_size': 5,
             'attack_fraction': 0.1,

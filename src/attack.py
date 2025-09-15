@@ -7,7 +7,8 @@ import numpy as np  # for time array in visualization
 import time
 from datetime import datetime
 import gc
-
+import json
+import os
 
 # Import necessary components from the simple_functional_stdp module
 from networks import (
@@ -18,18 +19,9 @@ from networks import (
     create_random_network, create_stdp_params, create_initial_stdp_state,
     IzhikevichNeuron
 )
-import orbax.checkpoint as ocp
 from pathlib import Path
 
 from jax import tree_util as jtu
-
-# def move_to_host_if_needed(pytree):
-#     # Only move if at least one array is not on CPU
-#     devices = jax.tree.leaves(jax.tree.map(lambda x: x.device.platform, pytree))
-#     if any(d != 'cpu' for d in devices):
-#         return jax.device_get(pytree)
-#     return pytree
-
 
 def move_to_host_if_needed(pytree):
     # Only move if at least one array is not on CPU
@@ -37,7 +29,6 @@ def move_to_host_if_needed(pytree):
         if hasattr(x, 'device') and hasattr(x.device, 'platform'):
             return x.device.platform
         else:
-            print(x)
             return 'cpu'  # Non-JAX arrays are considered to be on CPU
 
     devices = jax.tree.leaves(jax.tree.map(get_device_platform, pytree))
@@ -184,133 +175,131 @@ def run_attack_batch_base(G_list, neurons_list, I_ext, batch_size, attack_fracti
     base_dir = Path(save_path).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    #mngr = ocp.CheckpointManager(base_dir)
-    options = ocp.CheckpointManagerOptions(
-        save_interval_steps=1,
-        enable_async_checkpointing=True,
-        enable_background_delete=True,
+    for i, (G, neurons) in enumerate(zip(G_list, neurons_list)):
+        # Create parameters and state
+        #t0 = time.perf_counter()
+        key = random.PRNGKey(nkey + i)
+        params = create_network_params(neurons)
+        initial_state = create_initial_state(neurons, G, add_noise=True)
+        N = params.N
+        # E == 1, I == 0
+        neuron_types = jnp.array([int(n.neuron_type == "E") for n in neurons])
+
+        # t1 = time.perf_counter()
+        # print(f"Creating networks params {t1 - t0:.4f} seconds")
+
+        # Base run
+        # t0 = time.perf_counter()
+        base_out = run_base_network_jit(
+            params, initial_state, I_ext
         )
-    with ocp.CheckpointManager(base_dir, options=options) as mngr:
-        for i, (G, neurons) in enumerate(zip(G_list, neurons_list)):
-            # Create parameters and state
-            #t0 = time.perf_counter()
-            key = random.PRNGKey(nkey + i)
-            params = create_network_params(neurons)
-            initial_state = create_initial_state(neurons, G, add_noise=True)
-            N = params.N
-            # E == 1, I == 0
-            neuron_types = jnp.array([int(n.neuron_type == "E") for n in neurons])
+        #barrier(base_out)
+        # t1 = time.perf_counter()
+        base_final_state, base_V_hist, base_S_hist, base_syn_hist = base_out
+        # print(f"Base execution completed in {t1 - t0:.4f} seconds")
 
-            # t1 = time.perf_counter()
-            # print(f"Creating networks params {t1 - t0:.4f} seconds")
-
-            # Base run
-            # t0 = time.perf_counter()
-            base_out = run_base_network_jit(
-                params, initial_state, I_ext
-            )
-            #barrier(base_out)
-            # t1 = time.perf_counter()
-            base_final_state, base_V_hist, base_S_hist, base_syn_hist = base_out
-            # print(f"Base execution completed in {t1 - t0:.4f} seconds")
-
-            mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
-            base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
-            # Create batch of removal indices
-            # Different sets of neurons to remove for each example in the batch
-            # t0 = time.perf_counter()
-            batch_prune_key = random.fold_in(key, 2000)
-            removed_neurons = int(np.floor(attack_fraction * N))
-            remove_idx_batch = jax.vmap(
-                lambda k: random.choice(k, jnp.arange(N), shape=(removed_neurons,), replace=False)
-            )(random.split(batch_prune_key, batch_size))
-            #barrier(remove_idx_batch)
-            # t1 = time.perf_counter()
-            # print(f"Batch Pruning, CHOICE completed in {t1 - t0:.4f} seconds")
+        mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
+        base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
+        # Create batch of removal indices
+        # Different sets of neurons to remove for each example in the batch
+        # t0 = time.perf_counter()
+        batch_prune_key = random.fold_in(key, 2000)
+        removed_neurons = int(np.floor(attack_fraction * N))
+        remove_idx_batch = jax.vmap(
+            lambda k: random.choice(k, jnp.arange(N), shape=(removed_neurons,), replace=False)
+        )(random.split(batch_prune_key, batch_size))
+        #barrier(remove_idx_batch)
+        # t1 = time.perf_counter()
+        # print(f"Batch Pruning, CHOICE completed in {t1 - t0:.4f} seconds")
 
 
-            # t0 = time.perf_counter()
-            # Prune the batch
-            pruned_states_batch, pruned_params_batch, _, _ = prune_batch_no_stdp(
-                base_final_state, params, remove_idx_batch
-            )
-            #barrier((pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch))
-            # t1 = time.perf_counter()
-            # print(f"Batch Pruning completed in {t1 - t0:.4f} seconds")
+        # t0 = time.perf_counter()
+        # Prune the batch
+        pruned_states_batch, pruned_params_batch, _, _ = prune_batch_no_stdp(
+            base_final_state, params, remove_idx_batch
+        )
+        #barrier((pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch))
+        # t1 = time.perf_counter()
+        # print(f"Batch Pruning completed in {t1 - t0:.4f} seconds")
 
-            # t0 = time.perf_counter()
+        # t0 = time.perf_counter()
 
-            # Adjust current
-            # t0 = time.perf_counter()
-            Nk = N - removed_neurons
-            pruned_I_ext = I_ext[:, :Nk]  # (T, N-k)
-            pruned_I_ext_batch = jnp.broadcast_to(pruned_I_ext[None, :, :], (batch_size, pruned_I_ext.shape[0], pruned_I_ext.shape[1]))
+        # Adjust current
+        # t0 = time.perf_counter()
+        Nk = N - removed_neurons
+        pruned_I_ext = I_ext[:, :Nk]  # (T, N-k)
+        pruned_I_ext_batch = jnp.broadcast_to(pruned_I_ext[None, :, :], (batch_size, pruned_I_ext.shape[0], pruned_I_ext.shape[1]))
 
-            #barrier(pruned_I_ext_batch)
-            # t1 = time.perf_counter()
-            # print(f"Adjusting batch CURRENT completed in {t1 - t0:.4f} seconds")
+        #barrier(pruned_I_ext_batch)
+        # t1 = time.perf_counter()
+        # print(f"Adjusting batch CURRENT completed in {t1 - t0:.4f} seconds")
 
 
-            # Run batched
+        # Run batched
 
-            # t0 = time.perf_counter()
-            pruned_out = run_base_network_batch(
-                pruned_params_batch, pruned_states_batch, pruned_I_ext_batch
-            )
-            #barrier(pruned_out)
-            # t1 = time.perf_counter()
-            (pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
-            # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
-            print(f"Batched execution completed base, i:{i}")
+        # t0 = time.perf_counter()
+        pruned_out = run_base_network_batch(
+            pruned_params_batch, pruned_states_batch, pruned_I_ext_batch
+        )
+        #barrier(pruned_out)
+        # t1 = time.perf_counter()
+        (pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
+        # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
+        print(f"Batched execution completed base, i:{i}")
 
-            mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=(1, 2))
-            # For each batch, calculate the driver fraction and then average
-            # First, get unique current values (should be the same for all batches)
-            unique_current = np.unique(I_ext)
-            # Calculate driver fraction by properly handling batch dimension
-            b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
-            # Save
-            # t0 = time.perf_counter()
-            metadata = {
-                'experiment_type': "base_node_removal",
-                'timestamp': datetime.now().isoformat(),
-                'parameters': {
-                    'N': int(N),
-                    'batch_size': int(batch_size),
-                    'attack_fraction': float(attack_fraction),
-                }
+        mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=(1, 2))
+        # For each batch, calculate the driver fraction and then average
+        # First, get unique current values (should be the same for all batches)
+        unique_current = np.unique(I_ext)
+        # Calculate driver fraction by properly handling batch dimension
+        b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
+        # Save
+        # t0 = time.perf_counter()
+        metadata = {
+            'experiment_type': "base_node_removal",
+            'timestamp': datetime.now().isoformat(),
+            'parameters': {
+                'N': int(N),
+                'batch_size': int(batch_size),
+                'attack_fraction': float(attack_fraction),
             }
-            arrays_to_save = {
-                "pruned_S_hist_batch": pruned_S_hist_batch,
-                "base_S_hist": base_S_hist,
-                "base_driver_fraction": base_driver_fraction,
-                "batch_driver_fraction": b_driver_fraction,
-                "W0": initial_state.W,
-                "removed_ids": remove_idx_batch,
-                "neuron_type": neuron_types
-            }
+        }
+        arrays_to_save = {
+            "pruned_S_hist_batch": pruned_S_hist_batch,
+            "base_S_hist": base_S_hist,
+            "base_driver_fraction": base_driver_fraction,
+            "batch_driver_fraction": b_driver_fraction,
+            "W0": initial_state.W,
+            "removed_ids": remove_idx_batch,
+            "neuron_type": neuron_types
+        }
 
-            state_host = move_to_host_if_needed(arrays_to_save)
+        state_host = move_to_host_if_needed(arrays_to_save)
 
-            mngr.save(i,
-                args=ocp.args.Composite(
-                arrays=ocp.args.StandardSave(state_host),
-                metadata=ocp.args.JsonSave(metadata)
-            ))
-            # t1 = time.perf_counter()
-            # print(f"save step {i} took {t1- t0:.3f}s")
-            mngr.wait_until_finished()
+        # Create a step directory for this iteration
+        step_dir = base_dir / str(i)
+        step_dir.mkdir(parents=True, exist_ok=True)
 
+        # Save metadata as JSON
+        with open(step_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
 
-            # Now it's safe to delete everything
-            del base_out, base_final_state, base_V_hist, base_S_hist, neuron_types
-            del remove_idx_batch, pruned_states_batch, pruned_params_batch
-            del pruned_I_ext_batch, pruned_out
-            del pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch
-            del arrays_to_save
+        # Save arrays using numpy
+        for key, array in state_host.items():
+            np.save(step_dir / f"{key}.npy", array)
 
-            # Light garbage collection
-            gc.collect()
+        # t1 = time.perf_counter()
+        # print(f"save step {i} took {t1- t0:.3f}s")
+
+        # Now it's safe to delete everything
+        del base_out, base_final_state, base_V_hist, base_S_hist, neuron_types
+        del remove_idx_batch, pruned_states_batch, pruned_params_batch
+        del pruned_I_ext_batch, pruned_out
+        del pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch
+        del arrays_to_save
+
+        # Light garbage collection
+        gc.collect()
     return True
 
 def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fraction=0.1, nkey=42, save_path="save" ):
@@ -321,140 +310,138 @@ def run_attack_batch_stdp(G_list, neurons_list, I_ext, batch_size, attack_fracti
     base_dir = Path(save_path).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    #mngr = ocp.CheckpointManager(base_dir)
-    options = ocp.CheckpointManagerOptions(
-        save_interval_steps=1,
-        enable_async_checkpointing=True,
-        enable_background_delete=True,
+    for i, (G, neurons) in enumerate(zip(G_list, neurons_list)):
+        # Create parameters and state
+        #t0 = time.perf_counter()
+        key = random.PRNGKey(nkey + i)
+        params = create_network_params(neurons)
+        initial_state = create_initial_state(neurons, G, add_noise=True)
+        N = params.N
+        stdp_params = create_stdp_params(params, initial_state.W)
+        initial_stdp_state = create_initial_stdp_state(N)
+        # E == 1, I == 0
+        neuron_types = jnp.array([int(n.neuron_type == "E") for n in neurons])
+
+
+        # t1 = time.perf_counter()
+        # print(f"Creating networks params {t1 - t0:.4f} seconds")
+
+        # Base run
+        # t0 = time.perf_counter()
+        base_out = run_stdp_network_jit(
+            params, stdp_params, initial_state, initial_stdp_state, I_ext
         )
-    with ocp.CheckpointManager(base_dir, options=options) as mngr:
-        for i, (G, neurons) in enumerate(zip(G_list, neurons_list)):
-            # Create parameters and state
-            #t0 = time.perf_counter()
-            key = random.PRNGKey(nkey + i)
-            params = create_network_params(neurons)
-            initial_state = create_initial_state(neurons, G, add_noise=True)
-            N = params.N
-            stdp_params = create_stdp_params(params, initial_state.W)
-            initial_stdp_state = create_initial_stdp_state(N)
-            # E == 1, I == 0
-            neuron_types = jnp.array([int(n.neuron_type == "E") for n in neurons])
+        #barrier(base_out)
+        # t1 = time.perf_counter()
+        base_final_state, base_final_stdp_state, base_V_hist, base_S_hist, base_syn_hist = base_out
+        # print(f"Base execution completed in {t1 - t0:.4f} seconds")
+
+        mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
+        base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
+        # Create batch of removal indices
+        # Different sets of neurons to remove for each example in the batch
+        # t0 = time.perf_counter()
+        batch_prune_key = random.fold_in(key, 2000)
+        removed_neurons = int(np.floor(attack_fraction * N))
+        remove_idx_batch = jax.vmap(
+            lambda k: random.choice(k, jnp.arange(N), shape=(removed_neurons,), replace=False)
+        )(random.split(batch_prune_key, batch_size))
+        #barrier(remove_idx_batch)
+        # t1 = time.perf_counter()
+        # print(f"Batch Pruning, CHOICE completed in {t1 - t0:.4f} seconds")
 
 
-            # t1 = time.perf_counter()
-            # print(f"Creating networks params {t1 - t0:.4f} seconds")
+        # t0 = time.perf_counter()
+        # Prune the batch
+        pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch = prune_batch_with_stdp(
+            base_final_state, params, remove_idx_batch, base_final_stdp_state, stdp_params
+        )
+        #barrier((pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch))
+        # t1 = time.perf_counter()
+        # print(f"Batch Pruning completed in {t1 - t0:.4f} seconds")
 
-            # Base run
-            # t0 = time.perf_counter()
-            base_out = run_stdp_network_jit(
-                params, stdp_params, initial_state, initial_stdp_state, I_ext
-            )
-            #barrier(base_out)
-            # t1 = time.perf_counter()
-            base_final_state, base_final_stdp_state, base_V_hist, base_S_hist, base_syn_hist = base_out
-            # print(f"Base execution completed in {t1 - t0:.4f} seconds")
+        # t0 = time.perf_counter()
 
-            mean_abs_syn = np.mean(np.abs(base_syn_hist))      # average across time & neurons
-            base_driver_fraction = mean_abs_syn / (mean_abs_syn + np.unique(I_ext))
-            # Create batch of removal indices
-            # Different sets of neurons to remove for each example in the batch
-            # t0 = time.perf_counter()
-            batch_prune_key = random.fold_in(key, 2000)
-            removed_neurons = int(np.floor(attack_fraction * N))
-            remove_idx_batch = jax.vmap(
-                lambda k: random.choice(k, jnp.arange(N), shape=(removed_neurons,), replace=False)
-            )(random.split(batch_prune_key, batch_size))
-            #barrier(remove_idx_batch)
-            # t1 = time.perf_counter()
-            # print(f"Batch Pruning, CHOICE completed in {t1 - t0:.4f} seconds")
+        # Adjust current
+        # t0 = time.perf_counter()
+        Nk = N - removed_neurons
+        pruned_I_ext = I_ext[:, :Nk]  # (T, N-k)
+        pruned_I_ext_batch = jnp.broadcast_to(pruned_I_ext[None, :, :], (batch_size, pruned_I_ext.shape[0], pruned_I_ext.shape[1]))
+
+        #barrier(pruned_I_ext_batch)
+        # t1 = time.perf_counter()
+        # print(f"Adjusting batch CURRENT completed in {t1 - t0:.4f} seconds")
 
 
-            # t0 = time.perf_counter()
-            # Prune the batch
-            pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch = prune_batch_with_stdp(
-                base_final_state, params, remove_idx_batch, base_final_stdp_state, stdp_params
-            )
-            #barrier((pruned_states_batch, pruned_params_batch, pruned_stdp_states_batch, pruned_stdp_params_batch))
-            # t1 = time.perf_counter()
-            # print(f"Batch Pruning completed in {t1 - t0:.4f} seconds")
+        # Run batched
 
-            # t0 = time.perf_counter()
+        # t0 = time.perf_counter()
+        pruned_out = run_stdp_network_batch(
+            pruned_params_batch, pruned_stdp_params_batch,
+            pruned_states_batch, pruned_stdp_states_batch, pruned_I_ext_batch
+        )
+        #barrier(pruned_out)
+        # t1 = time.perf_counter()
+        (pruned_final_states_batch, pruned_final_stdp_states_batch,
+        pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
+        # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
+        print(f"Batched execution completed stdp, i:{i}")
 
-            # Adjust current
-            # t0 = time.perf_counter()
-            Nk = N - removed_neurons
-            pruned_I_ext = I_ext[:, :Nk]  # (T, N-k)
-            pruned_I_ext_batch = jnp.broadcast_to(pruned_I_ext[None, :, :], (batch_size, pruned_I_ext.shape[0], pruned_I_ext.shape[1]))
-
-            #barrier(pruned_I_ext_batch)
-            # t1 = time.perf_counter()
-            # print(f"Adjusting batch CURRENT completed in {t1 - t0:.4f} seconds")
-
-
-            # Run batched
-
-            # t0 = time.perf_counter()
-            pruned_out = run_stdp_network_batch(
-                pruned_params_batch, pruned_stdp_params_batch,
-                pruned_states_batch, pruned_stdp_states_batch, pruned_I_ext_batch
-            )
-            #barrier(pruned_out)
-            # t1 = time.perf_counter()
-            (pruned_final_states_batch, pruned_final_stdp_states_batch,
-            pruned_V_hist_batch, pruned_S_hist_batch, pruned_syn_hist) = pruned_out
-            # print(f"Batched execution completed in {t1 - t0:.4f} seconds")
-            print(f"Batched execution completed stdp, i:{i}")
-
-            # Calculate mean across all batches, time steps, and neurons
-            mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=( 1, 2))
-            # For each batch, calculate the driver fraction and then average
-            # First, get unique current values (should be the same for all batches)
-            unique_current = np.unique(I_ext)
-            # Calculate driver fraction by properly handling batch dimension
-            b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
-            # Save
-            # t0 = time.perf_counter()
-            metadata = {
-                'experiment_type': "stdp_node_removal",
-                'timestamp': datetime.now().isoformat(),
-                'parameters': {
-                    'N': int(N),
-                    'batch_size': int(batch_size),
-                    'attack_fraction': float(attack_fraction),
-                }
+        # Calculate mean across all batches, time steps, and neurons
+        mean_abs_syn = np.mean(np.abs(pruned_syn_hist), axis=( 1, 2))
+        # For each batch, calculate the driver fraction and then average
+        # First, get unique current values (should be the same for all batches)
+        unique_current = np.unique(I_ext)
+        # Calculate driver fraction by properly handling batch dimension
+        b_driver_fraction = mean_abs_syn / (mean_abs_syn + unique_current)
+        # Save
+        # t0 = time.perf_counter()
+        metadata = {
+            'experiment_type': "stdp_node_removal",
+            'timestamp': datetime.now().isoformat(),
+            'parameters': {
+                'N': int(N),
+                'batch_size': int(batch_size),
+                'attack_fraction': float(attack_fraction),
             }
-            arrays_to_save = {
-                "pruned_S_hist_batch": pruned_S_hist_batch,
-                "base_S_hist": base_S_hist,
-                "base_driver_fraction": base_driver_fraction,
-                "batch_driver_fraction": b_driver_fraction,
-                "W0": initial_state.W,
-                "removed_ids": remove_idx_batch,
-                "neuron_type": neuron_types
-            }
+        }
+        arrays_to_save = {
+            "pruned_S_hist_batch": pruned_S_hist_batch,
+            "base_S_hist": base_S_hist,
+            "base_driver_fraction": base_driver_fraction,
+            "batch_driver_fraction": b_driver_fraction,
+            "W0": initial_state.W,
+            "removed_ids": remove_idx_batch,
+            "neuron_type": neuron_types
+        }
 
-            state_host = move_to_host_if_needed(arrays_to_save)
+        state_host = move_to_host_if_needed(arrays_to_save)
 
-            mngr.save(i,
-                args=ocp.args.Composite(
-                arrays=ocp.args.StandardSave(state_host),
-                metadata=ocp.args.JsonSave(metadata)
-            ))
-            # t1 = time.perf_counter()
-            # print(f"save step {i} took {t1- t0:.3f}s")
-            mngr.wait_until_finished()
+        # Create a step directory for this iteration
+        step_dir = base_dir / str(i)
+        step_dir.mkdir(parents=True, exist_ok=True)
 
+        # Save metadata as JSON
+        with open(step_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
 
-            # Now it's safe to delete everything
-            del base_out, base_final_state, base_V_hist, base_S_hist, neuron_types
-            del remove_idx_batch, pruned_states_batch, pruned_params_batch
-            del pruned_I_ext_batch, pruned_out
-            del pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch
-            del arrays_to_save
-            del base_final_stdp_state, pruned_stdp_states_batch, pruned_stdp_params_batch
+        # Save arrays using numpy
+        for key, array in state_host.items():
+            np.save(step_dir / f"{key}.npy", array)
 
-            # Light garbage collection
-            gc.collect()
+        # t1 = time.perf_counter()
+        # print(f"save step {i} took {t1- t0:.3f}s")
+
+        # Now it's safe to delete everything
+        del base_out, base_final_state, base_V_hist, base_S_hist, neuron_types
+        del remove_idx_batch, pruned_states_batch, pruned_params_batch
+        del pruned_I_ext_batch, pruned_out
+        del pruned_final_states_batch, pruned_V_hist_batch, pruned_S_hist_batch
+        del arrays_to_save
+        del base_final_stdp_state, pruned_stdp_states_batch, pruned_stdp_params_batch
+
+        # Light garbage collection
+        gc.collect()
     return True
 
 def test_attack_pipeline_seq():
@@ -520,9 +507,7 @@ def test_attack_pipeline_seq_stdp():
         )
     t1_global = time.perf_counter()
     print(f"ALL TOOK {t1_global- t0_global:.3f}s")
-    # Wait for any remaining save operations to complete
-    #wait_for_saves()
-
+    # No need to wait for saves as we're not using Orbax's async saving
 
 
 if __name__ == "__main__":
