@@ -106,8 +106,8 @@ def process_batch(
 
         # Calculate various metrics
         emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
-        lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
-        sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
+       # lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
+       # sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
 
         # Network analysis
         post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
@@ -116,8 +116,8 @@ def process_batch(
         return {
             'batch': batch_idx,
             'emsrs': emsrs,
-            'lz': lz,
-            'sp': sp,
+         #   'lz': lz,
+       #     'sp': sp,
             'gm': gm,
         }
     except Exception as e:
@@ -153,7 +153,8 @@ def process_single_step(
 
     # Create analysis directory for this step
     analysis_dir = base_dir / str(step)
-    analysis_dir.mkdir(parents=True, exist_ok=True)
+    absolute_base_dir = base_dir.resolve()
+    #analysis_dir.mkdir(parents=True, exist_ok=True)
     analysis_path = analysis_dir / 'metrics.csv'
 
     # Skip if already processed
@@ -162,7 +163,7 @@ def process_single_step(
         return True
 
     try:
-        with ocp.CheckpointManager(base_dir) as mngr:
+        with ocp.CheckpointManager(absolute_base_dir) as mngr:
             time_start = time.time()
 
             # Try to restore the checkpoint for this step
@@ -250,12 +251,16 @@ def process_single_step(
 
             # Collect results
             all_emsrs = [r['emsrs'] for r in results]
-            all_lz = [r['lz'] for r in results]
-            all_sp = [r['sp'] for r in results]
+            #all_lz = [r['lz'] for r in results]
+            #all_sp = [r['sp'] for r in results]
             all_gm = [r['gm'] for r in results]
 
             # Create DataFrame from results
-            all_metrics = [all_emsrs, all_lz, all_sp, all_gm]
+            all_metrics = [
+                all_emsrs,
+                #all_lz,
+                #all_sp,
+                all_gm]
             collect_rows = []
 
             for b_idx, result in enumerate(results):
@@ -341,7 +346,7 @@ def resave_to_host(base_dir: Path) -> Tuple[List[int], List[int]]:
     failed_steps = []
 
     # Process each step
-    for step in range(n_of_directories):
+    for step in tqdm(range(n_of_directories)):
         logger.info(f"Processing step {step}")
 
         try:
@@ -409,9 +414,10 @@ def resave_to_host(base_dir: Path) -> Tuple[List[int], List[int]]:
 
 
 def main_sequential(
+    base_dir,
     batch_size: int = 20,
     I_ext: float = 10.0,
-    base_dir: Optional[Path] = None
+
 ) -> Tuple[List[int], List[int]]:
     """
     Main function to process all steps sequentially (no parallel processing)
@@ -425,9 +431,9 @@ def main_sequential(
         Tuple of (successful_steps, failed_steps)
     """
     # Set default base directory if not provided
-    if base_dir is None:
-        base_dir = Path("save/save_test_ER_dense_stdp").resolve()
-        base_dir.mkdir(parents=True, exist_ok=True)
+
+    absolute_base_dir = base_dir.resolve()
+
 
     n_of_directories = len([d for d in base_dir.iterdir() if d.is_dir()])
 
@@ -446,7 +452,7 @@ def main_sequential(
 
         # Create analysis directory for this step
         analysis_dir = base_dir / str(step)
-        analysis_dir.mkdir(parents=True, exist_ok=True)
+        #analysis_dir.mkdir(parents=True, exist_ok=True)
         analysis_path = analysis_dir / 'metrics.csv'
 
         # Skip if already processed
@@ -456,7 +462,7 @@ def main_sequential(
             continue
 
         try:
-            with ocp.CheckpointManager(base_dir) as mngr:
+            with ocp.CheckpointManager(absolute_base_dir) as mngr:
                 time_start = time.time()
 
                 # Try to restore the checkpoint for this step
@@ -531,12 +537,17 @@ def main_sequential(
 
                 # Collect results
                 all_emsrs = [r['emsrs'] for r in results]
-                all_lz = [r['lz'] for r in results]
-                all_sp = [r['sp'] for r in results]
+                #all_lz = [r['lz'] for r in results]
+                #all_sp = [r['sp'] for r in results]
                 all_gm = [r['gm'] for r in results]
 
                 # Create DataFrame
-                all_metrics = [all_emsrs, all_lz, all_sp, all_gm]
+                all_metrics = [
+                    all_emsrs,
+                    #all_lz,
+                    #all_sp,
+                    all_gm
+                ]
                 collect_rows = []
 
                 for b in range(len(results)):
@@ -587,10 +598,10 @@ def main_sequential(
 
 
 def main_parallel(
+    base_dir, #str or Path
     max_workers: Optional[int] = None,
     batch_size: int = 20,
     I_ext: float = 10.0,
-    base_dir: Optional[Path] = None
 ) -> Tuple[List[int], List[int]]:
     """
     Main function to process all steps with parallel batch processing
@@ -604,10 +615,6 @@ def main_parallel(
     Returns:
         Tuple of (successful_steps, failed_steps)
     """
-    # Set default base directory if not provided
-    if base_dir is None:
-        base_dir = Path("save/save_test_ER_dense_stdp").resolve()
-        base_dir.mkdir(parents=True, exist_ok=True)
 
     n_of_directories = len([d for d in base_dir.iterdir() if d.is_dir()])
 
