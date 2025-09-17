@@ -1,25 +1,19 @@
 #!/usr/bin/env python
 """
-Extract resilience metrics from saved attack results
-
-This script processes the saved results from attack.py, calculates various
-resilience metrics using the measures.py functions, and saves them to CSV files.
-
-It uses Ray for parallel processing to significantly speed up computation
-when processing large batches.
-
 Usage:
-    python extract_metrics.py --base-dir /path/to/results --workers 4
-    python extract_metrics.py --base-dir /path/to/results --local  # Sequential mode
+    # To only merge existing metrics.csv files for a single experiment:
+    python extract_metrics.py --base-dir path/to/experiment_dir --merge-only
 
-Requirements:
-    - ray: for parallel processing
-    - pandas: for data manipulation and CSV output
-    - networkx: for graph metrics
-    - infomeasure: for entropy-based measures
-    - antropy: for complexity measures
+    # To only merge existing metrics.csv files for multiple experiments:
+    python extract_metrics.py --base-dir path/to/container_dir --merge-only
 
-Author: MAuffee
+    # To compute metrics and then merge them for a single experiment:
+    python extract_metrics.py --base-dir path/to/experiment_dir
+    python extract_metrics.py --base-dir path/to/experiment_dir --merge-only
+
+    # To compute metrics and then merge them for multiple experiments:
+    python extract_metrics.py --base-dir path/to/container_dir
+    python extract_metrics.py --base-dir path/to/container_dir --merge-only
 """
 
 import os
@@ -238,6 +232,12 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
             step_dir = base_path / str(step)
             logger.info(f"Processing step {step} in {step_dir}")
 
+             # Check if metrics.csv already exists
+            metrics_path = step_dir / "metrics.csv"
+            if metrics_path.exists():
+                logger.info(f"Metrics file already exists for step {step}, skipping")
+                continue
+
             # Load step data
             data = load_step_data(base_path, step)
             metadata = data['metadata']
@@ -306,7 +306,7 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
             df = pd.DataFrame(flattened_results)
 
             # Save results to CSV
-            metrics_path = step_dir / "metrics.csv"
+            #metrics_path = step_dir / "metrics.csv"
             df.to_csv(metrics_path, index=False)
             logger.info(f"Saved metrics to {metrics_path}")
 
@@ -334,6 +334,7 @@ def main():
         --base-dir: Path to the directory containing saved results
         --workers: Number of Ray workers to use for parallel processing
         --local: Run in sequential mode (no parallelism)
+        --merge-only: Only merge existing metrics.csv files without recomputing metrics
     """
     parser = argparse.ArgumentParser(
         description="Extract metrics from attack results",
@@ -348,6 +349,9 @@ Examples:
 
   # Process all experiments with default settings (4 workers)
   python extract_metrics.py --base-dir save
+
+  # Only merge existing metrics.csv files from step directories into a combined file
+  python extract_metrics.py --base-dir save/experiment_1 --merge-only
 """
     )
     parser.add_argument("--base-dir", type=str, required=True,
@@ -356,6 +360,8 @@ Examples:
                         help="Number of Ray workers (default: 4)")
     parser.add_argument("--local", action="store_true",
                         help="Force sequential processing (no parallelism)")
+    parser.add_argument("--merge-only", action="store_true",
+                        help="Only merge existing metrics.csv files without recomputing metrics")
     args = parser.parse_args()
 
     # Check if sequential mode is requested
@@ -377,18 +383,116 @@ Examples:
     # Check if this is a step directory structure
     if any(item.is_dir() and item.name.isdigit() for item in base_path.iterdir()):
         # This is already a valid experiment directory
-        process_directory(base_path, args.workers, force_sequential)
+        if args.merge_only:
+            merge_step_metrics(base_path)
+        else:
+            process_directory(base_path, args.workers, force_sequential)
     else:
         # This might be a container of multiple experiment directories
         # Look for subdirectories that contain step directories
-        for subdir in base_path.iterdir():
-            if not subdir.is_dir():
+        process_multiple_experiments(base_path, args.merge_only, args.workers, force_sequential)
+
+def merge_step_metrics(save_dir: Union[str, Path]) -> None:
+    """
+    Merge metrics.csv files from all step directories into a single combined CSV file.
+
+    This function:
+    1. Identifies all step directories in save_dir (0, 1, 2, ...)
+    2. Reads the metrics.csv file from each step directory
+    3. Adds a 'step' column to identify which step each row came from
+    4. Combines all data into a single DataFrame
+    5. Saves the combined data as 'combined_metrics.csv' in save_dir
+
+    Args:
+        save_dir: Path to the directory containing step directories
+    """
+    try:
+        # Validate save directory
+        save_path = validate_base_dir(save_dir)
+        logger.info(f"Merging metrics from step directories in: {save_path}")
+
+        # Get available steps
+        steps = list_available_steps(save_path)
+        if not steps:
+            logger.warning(f"No steps found in {save_path}")
+            return
+
+        logger.info(f"Found {len(steps)} steps to merge")
+
+        # Initialize an empty list to store DataFrames from each step
+        dfs = []
+
+        # Process each step
+        for step in steps:
+            step_dir = save_path / str(step)
+            metrics_path = step_dir / "metrics.csv"
+
+            if not metrics_path.exists():
+                logger.warning(f"No metrics.csv found for step {step}, skipping")
                 continue
 
-            # Check if this subdirectory contains steps
-            if any(item.is_dir() and item.name.isdigit() for item in subdir.iterdir()):
-                logger.info(f"Found experiment directory: {subdir}")
-                process_directory(subdir, args.workers, force_sequential)
+            # Read the metrics.csv file
+            try:
+                df = pd.read_csv(metrics_path)
+                # Add a 'step' column to identify the source
+                df['step'] = step
+                dfs.append(df)
+                logger.info(f"Loaded metrics from step {step} with {len(df)} rows")
+            except Exception as e:
+                logger.error(f"Error reading metrics from step {step}: {e}")
+
+        if not dfs:
+            logger.warning("No metrics data found in any step directory")
+            return
+
+        # Combine all DataFrames
+        combined_df = pd.concat(dfs, ignore_index=True)
+
+        # Save the combined data
+        output_path = save_path / "combined_metrics.csv"
+        combined_df.to_csv(output_path, index=False)
+        logger.info(f"Saved combined metrics to {output_path} with {len(combined_df)} total rows")
+
+    except Exception as e:
+        logger.error(f"Error merging metrics from {save_dir}: {e}")
+
+
+def process_multiple_experiments(base_dir: Union[str, Path], merge_only: bool = False, n_workers: int = 4, force_sequential: bool = False) -> None:
+    """
+    Process multiple experiment directories contained within a base directory.
+
+    This function:
+    1. Finds all subdirectories that contain step directories (0, 1, 2, ...)
+    2. Processes each subdirectory using either merge_step_metrics or process_directory
+
+    Args:
+        base_dir: Path to the base directory containing experiment directories
+        merge_only: If True, only merge existing metrics without computing them
+        n_workers: Number of Ray workers to use (ignored if merge_only=True)
+        force_sequential: If True, use sequential processing (ignored if merge_only=True)
+    """
+    base_path = validate_base_dir(base_dir)
+    logger.info(f"Searching for experiment directories in: {base_path}")
+
+    experiment_dirs_found = False
+
+    # Look for subdirectories that contain step directories
+    for subdir in base_path.iterdir():
+        if not subdir.is_dir():
+            continue
+
+        # Check if this subdirectory contains steps
+        if any(item.is_dir() and item.name.isdigit() for item in subdir.iterdir()):
+            experiment_dirs_found = True
+            logger.info(f"Found experiment directory: {subdir}")
+
+            if merge_only:
+                merge_step_metrics(subdir)
+            else:
+                process_directory(subdir, n_workers, force_sequential)
+
+    if not experiment_dirs_found:
+        logger.warning(f"No experiment directories found in {base_path}")
 
 if __name__ == "__main__":
     main()
