@@ -93,9 +93,20 @@ def process_batch_ray(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
         lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
         sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
 
-        post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
-        gm = global_metrics_directed(post_G_reconstructed)
+        #post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
+        #gm = global_metrics_directed(post_G_reconstructed)
 
+        gm = {
+            "density": None,
+            "global_efficiency": None,
+            "avg_betweenness": None,
+            "avg_closeness": None,
+            "avg_clustering": None,
+            "transitivity": None,
+            "global_cc": None,
+            "avg_spl": None,
+            "swnss": None
+        }
         result = {
             'batch': batch,
             'emsrs': emsrs,
