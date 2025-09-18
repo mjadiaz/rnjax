@@ -199,6 +199,159 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
 
 def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequential: bool = False) -> None:
     """
+    Process all steps in a directory using Ray parallelization with pipelining
+
+    This function:
+    1. Loads data from each step directory
+    2. Processes batches in a pipelined manner using Ray
+    3. Calculates resilience metrics for each batch
+    4. Saves results as CSV files in each step directory
+
+    Args:
+        base_dir: Path to the base directory containing step directories
+        n_workers: Number of Ray workers to use for parallel processing
+        force_sequential: If True, use sequential processing instead of Ray
+    """
+    try:
+        # Initialize Ray if we're not forcing sequential mode
+        use_ray = not force_sequential
+        ray_initialized = False
+
+        if use_ray and not ray.is_initialized():
+            try:
+                ray.init(num_cpus=n_workers, ignore_reinit_error=True)
+                logger.info(f"Ray initialized with {n_workers} workers")
+                ray_initialized = True
+            except Exception as e:
+                logger.warning(f"Ray initialization error: {e}. Falling back to sequential processing.")
+                use_ray = False
+
+        # Validate base directory
+        base_path = validate_base_dir(base_dir)
+        logger.info(f"Processing directory: {base_path}")
+
+        # Get available steps
+        steps = list_available_steps(base_path)
+        if not steps:
+            logger.warning(f"No steps found in {base_path}")
+            return
+
+        logger.info(f"Found {len(steps)} steps to process")
+
+        # For pipelining, we'll use a work queue approach
+        if use_ray:
+            # Track all futures so we can process results as they come in
+            all_futures = {}
+            step_metadata = {}
+
+            # Queue up tasks from all steps
+            for step in steps:
+                step_dir = base_path / str(step)
+                logger.info(f"Queueing step {step} in {step_dir}")
+
+                # Check if metrics.csv already exists
+                metrics_path = step_dir / "metrics.csv"
+                if metrics_path.exists():
+                    logger.info(f"Metrics file already exists for step {step}, skipping")
+                    continue
+
+                # Load step data
+                data = load_step_data(base_path, step)
+                metadata = data['metadata']
+                arrays = data['arrays']
+
+                # Extract required arrays
+                base_S_hist = arrays.get('base_S_hist')
+                pruned_S_hist_batch = arrays.get('pruned_S_hist_batch')
+                W0 = arrays.get('W0')
+                removed_ids = arrays.get('removed_ids')
+                batch_driver_fraction = arrays.get('batch_driver_fraction', None)
+
+                if base_S_hist is None or pruned_S_hist_batch is None or W0 is None or removed_ids is None:
+                    logger.warning(f"Missing required arrays in step {step}, skipping")
+                    continue
+
+                n_nodes = W0.shape[0]
+                batch_size = pruned_S_hist_batch.shape[0]
+
+                logger.info(f"Queueing {batch_size} batches for step {step}")
+
+                # Create Ray tasks for each batch
+                step_futures = [
+                    process_batch_ray.remote(
+                        batch=i,
+                        base_S_hist=base_S_hist,
+                        pruned_S_hist_batch=pruned_S_hist_batch,
+                        W0=W0,
+                        removed_ids=removed_ids,
+                        n_nodes=n_nodes,
+                        I_ext=batch_driver_fraction
+                    )
+                    for i in range(batch_size)
+                ]
+
+                all_futures[step] = step_futures
+                step_metadata[step] = {
+                    'step_dir': step_dir,
+                    'batch_size': batch_size
+                }
+
+            # Process results as they complete
+            for step, futures in all_futures.items():
+                step_dir = step_metadata[step]['step_dir']
+                logger.info(f"Processing results for step {step}")
+
+                # Get results for this step (this will wait only for this step's tasks)
+                batch_results = ray.get(futures)
+
+                # Filter out None results (from errors)
+                batch_results = [r for r in batch_results if r is not None]
+
+                if not batch_results:
+                    logger.warning(f"No valid results for step {step}, skipping")
+                    continue
+
+                # Flatten metric dictionaries and create DataFrame
+                flattened_results = [flatten_metrics_dict(result) for result in batch_results]
+                df = pd.DataFrame(flattened_results)
+
+                # Save results to CSV
+                metrics_path = step_dir / "metrics.csv"
+                df.to_csv(metrics_path, index=False)
+                logger.info(f"Saved metrics to {metrics_path}")
+
+                # Create summary statistics
+                summary_df = df.describe()
+                summary_path = step_dir / "metrics_summary.csv"
+                summary_df.to_csv(summary_path)
+                logger.info(f"Saved summary statistics to {summary_path}")
+
+        else:
+            # Sequential processing (original code)
+            for step in steps:
+                step_dir = base_path / str(step)
+                logger.info(f"Processing step {step} in {step_dir}")
+
+                # Check if metrics.csv already exists
+                metrics_path = step_dir / "metrics.csv"
+                if metrics_path.exists():
+                    logger.info(f"Metrics file already exists for step {step}, skipping")
+                    continue
+
+                # Load step data
+                data = load_step_data(base_path, step)
+                # ... rest of the original sequential code ...
+
+    except Exception as e:
+        logger.error(f"Error processing directory {base_dir}: {e}")
+    finally:
+        # Don't shut down Ray if we didn't initialize it
+        if use_ray and ray_initialized and ray.is_initialized():
+            ray.shutdown()
+            logger.info("Ray shutdown complete")
+
+def _process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequential: bool = False) -> None:
+    """
     Process all steps in a directory using Ray parallelization or sequential processing
 
     This function:
