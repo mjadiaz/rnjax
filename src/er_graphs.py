@@ -32,16 +32,16 @@ structures = {
         'kwargs':{'p': (0.001, 0.01)},
         'graph_category': 'sparse',
         'weight_bounds': (1., 50.),
-    # },
-    # 'ER_intermediate': {
-    #     'kwargs':{'p': (0.01, 0.05)},
-    #     'graph_category': 'intermediate',
-    #     'weight_bounds': (1., 10.),
-    # },
-    # 'ER_dense': {
-    #     'kwargs':{'p': (0.05, 0.3)},
-    #     'graph_category': 'dense',
-    #     'weight_bounds': (1., 3.),
+    },
+    'ER_intermediate': {
+        'kwargs':{'p': (0.01, 0.05)},
+        'graph_category': 'intermediate',
+        'weight_bounds': (1., 10.),
+    },
+    'ER_dense': {
+        'kwargs':{'p': (0.05, 0.3)},
+        'graph_category': 'dense',
+        'weight_bounds': (1., 3.),
     }
 }
 
@@ -51,8 +51,8 @@ if __name__ == "__main__":
     rng = np.random.default_rng()
     experiment_configs = [
         ('ER_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        # ('ER_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        # ('ER_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
+        ('ER_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        ('ER_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
     ]
 
     # Run each experiment

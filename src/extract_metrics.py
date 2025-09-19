@@ -174,10 +174,27 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
 
         emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
         lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
-        sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
 
-        post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
-        gm = global_metrics_directed(post_G_reconstructed)
+        sp = {
+            "avg_se_pre": None,
+            "avg_se_post_init": None,
+            "avg_se_post_final": None
+        }
+        #sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
+
+        gm = {
+            "density": None,
+            "global_efficiency": None,
+            "avg_betweenness": None,
+            "avg_closeness": None,
+            "avg_clustering": None,
+            "transitivity": None,
+            "global_cc": None,
+            "avg_spl": None,
+            "swnss": None
+        }
+        #post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
+        #gm = global_metrics_directed(post_G_reconstructed)
 
         result = {
             'batch': batch,
@@ -340,7 +357,58 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
 
                 # Load step data
                 data = load_step_data(base_path, step)
-                # ... rest of the original sequential code ...
+                metadata = data['metadata']
+                arrays = data['arrays']
+
+                # Extract required arrays
+                base_S_hist = arrays.get('base_S_hist')
+                pruned_S_hist_batch = arrays.get('pruned_S_hist_batch')
+                W0 = arrays.get('W0')
+                removed_ids = arrays.get('removed_ids')
+                batch_driver_fraction = arrays.get('batch_driver_fraction', None)
+
+                if base_S_hist is None or pruned_S_hist_batch is None or W0 is None or removed_ids is None:
+                    logger.warning(f"Missing required arrays in step {step}, skipping")
+                    continue
+
+                n_nodes = W0.shape[0]
+                batch_size = pruned_S_hist_batch.shape[0]
+
+                logger.info(f"Processing {batch_size} batches for step {step} sequentially")
+                batch_results = []
+                for i in range(batch_size):
+                    logger.info(f"Processing batch {i+1}/{batch_size}")
+                    result = process_batch_seq(
+                        batch=i,
+                        base_S_hist=base_S_hist,
+                        pruned_S_hist_batch=pruned_S_hist_batch,
+                        W0=W0,
+                        removed_ids=removed_ids,
+                        n_nodes=n_nodes,
+                        I_ext=batch_driver_fraction
+                    )
+                    batch_results.append(result)
+
+                # Filter out None results (from errors)
+                batch_results = [r for r in batch_results if r is not None]
+
+                if not batch_results:
+                    logger.warning(f"No valid results for step {step}, skipping")
+                    continue
+
+                # Flatten metric dictionaries and create DataFrame
+                flattened_results = [flatten_metrics_dict(result) for result in batch_results]
+                df = pd.DataFrame(flattened_results)
+
+                # Save results to CSV
+                df.to_csv(metrics_path, index=False)
+                logger.info(f"Saved metrics to {metrics_path}")
+
+                # Create summary statistics
+                summary_df = df.describe()
+                summary_path = step_dir / "metrics_summary.csv"
+                summary_df.to_csv(summary_path)
+                logger.info(f"Saved summary statistics to {summary_path}")
 
     except Exception as e:
         logger.error(f"Error processing directory {base_dir}: {e}")
