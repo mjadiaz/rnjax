@@ -4,8 +4,68 @@ import numpy as np
 import networkx as nx
 
 # Resilience assesment
-
 def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):
+    """
+    Calculate entropy-based measures for system resilience assessment.
+
+    For better readability, time series are labeled as:
+    A = pre-attack state (st_pre_attack)
+    B = post-attack initial state (st_post_attack_init)
+    C = post-attack final state (st_post_attack_final)
+
+    Returns a dictionary with:
+        - Entropy of A, B, C (joint entropy of network microstates)
+        - Entropy of A.T, B.T, C.T (joint entropy across neuron spike trains)
+        - Mutual information between A, B, C (microstate perspective)
+        - Mutual information between A.T, B.T, C.T (neuron spike train perspective)
+        - Maximum possible entropy for each (for normalization)
+    """
+
+    if im_args is None:
+        im_args = {"approach": "miller_madow", "base": 2}
+
+    test_fraction = int(len(S_hist) * fraction)
+
+    A = S_hist[-test_fraction:, surviving_nodes]
+    B = S_hist_R[:test_fraction]
+    C = S_hist_R[-test_fraction:]
+
+    # Entropy of network microstates (rows = time, columns = neurons)
+    h_A = im.entropy(A, **im_args)
+    h_B = im.entropy(B, **im_args)
+    h_C = im.entropy(C, **im_args)
+
+    # Entropy across neuron spike trains (rows = neurons, columns = time)
+    h_A_T = im.entropy(A.T, **im_args)
+    h_B_T = im.entropy(B.T, **im_args)
+    h_C_T = im.entropy(C.T, **im_args)
+
+    # Mutual information between microstate sequences
+    mi_AB = im.mutual_information(A, B, **im_args)
+    mi_AC = im.mutual_information(A, C, **im_args)
+    mi_AA = im.mutual_information(A, A, **im_args)
+
+    # Mutual information between neuron spike trains
+    mi_AB_T = im.mutual_information(A.T, B.T, **im_args)
+    mi_AC_T = im.mutual_information(A.T, C.T, **im_args)
+    mi_AA_T = im.mutual_information(A.T, A.T, **im_args)
+
+    return {
+        'h_A': h_A,
+        'h_B': h_B,
+        'h_C': h_C,
+        'h_A_T': h_A_T,
+        'h_B_T': h_B_T,
+        'h_C_T': h_C_T,
+        'mi_AB': mi_AB,
+        'mi_AC': mi_AC,
+        'mi_AA': mi_AA,
+        'mi_AB_T': mi_AB_T,
+        'mi_AC_T': mi_AC_T,
+        'mi_AA_T': mi_AA_T,
+    }
+
+def _entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):
     """
     Calculate entropy-based measures for system resilience assessment.
 

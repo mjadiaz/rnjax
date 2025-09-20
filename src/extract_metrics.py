@@ -31,6 +31,7 @@ import networkx as nx
 import infomeasure as im
 import antropy as ant
 
+import json
 from load_utils import (
     load_experiment_summary,
     list_available_steps,
@@ -409,6 +410,16 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
                 summary_path = step_dir / "metrics_summary.csv"
                 summary_df.to_csv(summary_path)
                 logger.info(f"Saved summary statistics to {summary_path}")
+
+                G_W0 = nx.from_numpy_array(W0, create_using=nx.DiGraph)
+                gm = global_metrics_directed(G_W0)
+
+                # Save graph metrics to JSON
+                graph_metrics_path = step_dir / "graph_metrics.json"
+                with open(graph_metrics_path, 'w') as f:
+                    json.dump(gm, f, indent=4)
+                logger.info(f"Saved graph metrics to {graph_metrics_path}")
+
 
     except Exception as e:
         logger.error(f"Error processing directory {base_dir}: {e}")
