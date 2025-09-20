@@ -635,7 +635,100 @@ Examples:
         # Look for subdirectories that contain step directories
         process_multiple_experiments(base_path, args.merge_only, args.workers, force_sequential)
 
+
 def merge_step_metrics(save_dir: Union[str, Path]) -> None:
+    """
+    Merge metrics.csv files from all step directories into a single combined CSV file.
+    Also merge graph_metrics.json files into a separate combined CSV file.
+
+    This function:
+    1. Identifies all step directories in save_dir (0, 1, 2, ...)
+    2. Reads the metrics.csv file from each step directory
+    3. Reads the graph_metrics.json file from each step directory
+    4. Adds a 'step' column to identify which step each row came from
+    5. Combines all metrics data into a single DataFrame
+    6. Combines all graph metrics data into a separate single DataFrame
+    7. Saves the combined data as 'combined_metrics.csv' and 'combined_graph_metrics.csv' in save_dir
+
+    Args:
+        save_dir: Path to the directory containing step directories
+    """
+    try:
+        # Validate save directory
+        save_path = validate_base_dir(save_dir)
+        logger.info(f"Merging metrics from step directories in: {save_path}")
+
+        # Get available steps
+        steps = list_available_steps(save_path)
+        if not steps:
+            logger.warning(f"No steps found in {save_path}")
+            return
+
+        logger.info(f"Found {len(steps)} steps to merge")
+
+        # Initialize empty lists to store DataFrames from each step
+        metric_dfs = []
+        graph_metric_dfs = []
+
+        # Process each step
+        for step in steps:
+            step_dir = save_path / str(step)
+
+            # Process metrics.csv
+            metrics_path = step_dir / "metrics.csv"
+            if metrics_path.exists():
+                try:
+                    df = pd.read_csv(metrics_path)
+                    # Add a 'step' column to identify the source
+                    df['step'] = step
+                    metric_dfs.append(df)
+                    logger.info(f"Loaded metrics from step {step} with {len(df)} rows")
+                except Exception as e:
+                    logger.error(f"Error reading metrics from step {step}: {e}")
+            else:
+                logger.warning(f"No metrics.csv found for step {step}, skipping")
+
+            # Process graph_metrics.json
+            graph_metrics_path = step_dir / "graph_metrics.json"
+            if graph_metrics_path.exists():
+                try:
+                    with open(graph_metrics_path, 'r') as f:
+                        graph_metrics = json.load(f)
+
+                    # Convert JSON to DataFrame (single row)
+                    graph_df = pd.DataFrame([graph_metrics])
+                    # Add a 'step' column to identify the source
+                    graph_df['step'] = step
+                    graph_metric_dfs.append(graph_df)
+                    logger.info(f"Loaded graph metrics from step {step}")
+                except Exception as e:
+                    logger.error(f"Error reading graph metrics from step {step}: {e}")
+            else:
+                logger.warning(f"No graph_metrics.json found for step {step}, skipping")
+
+        # Combine and save metrics.csv data
+        if metric_dfs:
+            combined_df = pd.concat(metric_dfs, ignore_index=True)
+            output_path = save_path / "combined_metrics.csv"
+            combined_df.to_csv(output_path, index=False)
+            logger.info(f"Saved combined metrics to {output_path} with {len(combined_df)} total rows")
+        else:
+            logger.warning("No metrics data found in any step directory")
+
+        # Combine and save graph_metrics.json data
+        if graph_metric_dfs:
+            combined_graph_df = pd.concat(graph_metric_dfs, ignore_index=True)
+            output_path = save_path / "combined_graph_metrics.csv"
+            combined_graph_df.to_csv(output_path, index=False)
+            logger.info(f"Saved combined graph metrics to {output_path} with {len(combined_graph_df)} total rows")
+        else:
+            logger.warning("No graph metrics data found in any step directory")
+
+    except Exception as e:
+        logger.error(f"Error merging metrics from {save_dir}: {e}")
+
+
+def _merge_step_metrics(save_dir: Union[str, Path]) -> None:
     """
     Merge metrics.csv files from all step directories into a single combined CSV file.
 
