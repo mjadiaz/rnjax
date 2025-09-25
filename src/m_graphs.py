@@ -214,13 +214,13 @@ if __name__ == '__main__':
         save_name = 'save/'  + strtr
 
         attack_params = {
-            'n_nodes': 200,  # Changed from 500 to match other experiments
+            'n_nodes': 500,
             'T_global': 2000, #ms
-            'batch_size': 20,
+            'batch_size': 10,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 20  # Changed from 1 to match other experiments
+            'number_of_graphs': 250
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_stochastic_block_model)
