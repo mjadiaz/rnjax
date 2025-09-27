@@ -16,6 +16,8 @@ venv/
 
 # Folders starting with "save" anywhere in the project
 **/save*/
+*.mp4
+**/*.mp4
 
 # Jupyter Notebook
 .ipynb_checkpoints
