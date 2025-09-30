@@ -62,7 +62,7 @@ if __name__ == "__main__":
         attack_params = {
             'n_nodes': 500,
             'T_global': 2000, #ms
-            'batch_size': 10,
+            'batch_size': int(2**6),
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,

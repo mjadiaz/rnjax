@@ -461,7 +461,7 @@ def run_stdp_network_syn(params: NetworkParams, stdp_params: STDPParams,
 # Helper Functions
 # ============================================================================
 
-def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
+def _create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
                          weight_bounds: Tuple[float, float] = (10.0, 20.0),
                          key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
     """Create a random network of Izhikevich neurons.
@@ -495,7 +495,79 @@ def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
         G[i][j]['weight'] = float(weight)
 
     return neurons, G
+    def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
+                             weight_bounds: Tuple[float, float] = (10.0, 20.0),
+                             key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
+        """Create a random network of Izhikevich neurons.
+        Note: Can we optimise this? cpu -> gpu"""
+        if key is None:
+            key = random.PRNGKey(42)
 
+        # Force operations to happen on CPU
+        with jax.default_device(jax.devices('cpu')[0]):
+            # Create neurons (80% excitatory, 20% inhibitory)
+            neurons = []
+            for i in range(N):
+                neuron_key = random.fold_in(key, i)
+                rand_val = random.uniform(random.fold_in(neuron_key, 1000), ())
+                neuron_type = "E" if rand_val <= 0.8 else "I"  # 80% excitatory
+                neuron = IzhikevichNeuron.auto(neuron_type, key=neuron_key)
+                neurons.append(neuron)
+
+            if G is None:
+                # Create random graph
+                G = nx.erdos_renyi_graph(N, p_connect, directed=True, seed=int(key[0]))
+
+            # Add weights
+            weight_key = random.fold_in(key, N)
+            for edge_idx, (i, j) in enumerate(G.edges()):
+                edge_key = random.fold_in(weight_key, edge_idx)
+                weight = random.uniform(edge_key, (), minval=weight_bounds[0], maxval=weight_bounds[1])
+
+                # Make inhibitory connections negative
+                if neurons[j].neuron_type == "I":
+                    weight *= -1
+
+                G[i][j]['weight'] = float(weight)
+
+        return neurons, G
+
+def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
+                         weight_bounds: Tuple[float, float] = (10.0, 20.0),
+                         key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
+    """Create a random network of Izhikevich neurons.
+    Note: Can we optimise this? cpu -> gpu"""
+    if key is None:
+        key = random.PRNGKey(42)
+
+    # Force operations to happen on CPU
+    with jax.default_device(jax.devices('cpu')[0]):
+        # Create neurons (80% excitatory, 20% inhibitory)
+        neurons = []
+        for i in range(N):
+            neuron_key = random.fold_in(key, i)
+            rand_val = random.uniform(random.fold_in(neuron_key, 1000), ())
+            neuron_type = "E" if rand_val <= 0.8 else "I"  # 80% excitatory
+            neuron = IzhikevichNeuron.auto(neuron_type, key=neuron_key)
+            neurons.append(neuron)
+
+        if G is None:
+            # Create random graph
+            G = nx.erdos_renyi_graph(N, p_connect, directed=True, seed=int(key[0]))
+
+        # Add weights
+        weight_key = random.fold_in(key, N)
+        for edge_idx, (i, j) in enumerate(G.edges()):
+            edge_key = random.fold_in(weight_key, edge_idx)
+            weight = random.uniform(edge_key, (), minval=weight_bounds[0], maxval=weight_bounds[1])
+
+            # Make inhibitory connections negative
+            if neurons[j].neuron_type == "I":
+                weight *= -1
+
+            G[i][j]['weight'] = float(weight)
+
+    return neurons, G
 
 def plot_network_activity(time_array: np.ndarray, V_hist: jnp.ndarray, S_hist: jnp.ndarray,
                          title: str = "Network Activity", save_path: Optional[str] = None):

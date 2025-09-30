@@ -258,11 +258,9 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
 
         # For pipelining, we'll use a work queue approach
         if use_ray:
-            # Track all futures so we can process results as they come in
-            all_futures = {}
+            # Track metadata
             step_metadata = {}
 
-            # Queue up tasks from all steps
             for step in steps:
                 step_dir = base_path / str(step)
                 logger.info(f"Queueing step {step} in {step_dir}")
@@ -275,7 +273,6 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
 
                 # Load step data
                 data = load_step_data(base_path, step)
-                metadata = data['metadata']
                 arrays = data['arrays']
 
                 # Extract required arrays
@@ -294,36 +291,41 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
 
                 logger.info(f"Queueing {batch_size} batches for step {step}")
 
-                # Create Ray tasks for each batch
-                step_futures = [
-                    process_batch_ray.remote(
-                        batch=i,
-                        base_S_hist=base_S_hist,
-                        pruned_S_hist_batch=pruned_S_hist_batch,
-                        W0=W0,
-                        removed_ids=removed_ids,
-                        n_nodes=n_nodes,
-                        I_ext=batch_driver_fraction
+                # Put large arrays into Ray object store ONCE
+                base_S_hist_ref = ray.put(base_S_hist)
+                pruned_S_hist_batch_ref = ray.put(pruned_S_hist_batch)
+                W0_ref = ray.put(W0)
+                removed_ids_ref = ray.put(removed_ids)
+                batch_driver_fraction_ref = ray.put(batch_driver_fraction)
+
+                # Limit inflight tasks to avoid memory / spillover
+                max_inflight = n_workers * 2
+                futures = []
+                results = []
+
+                for i in range(batch_size):
+                    futures.append(
+                        process_batch_ray.remote(
+                            batch=i,
+                            base_S_hist=base_S_hist_ref,
+                            pruned_S_hist_batch=pruned_S_hist_batch_ref,
+                            W0=W0_ref,
+                            removed_ids=removed_ids_ref,
+                            n_nodes=n_nodes,
+                            I_ext=batch_driver_fraction_ref
+                        )
                     )
-                    for i in range(batch_size)
-                ]
 
-                all_futures[step] = step_futures
-                step_metadata[step] = {
-                    'step_dir': step_dir,
-                    'batch_size': batch_size
-                }
+                    if len(futures) >= max_inflight:
+                        done, futures = ray.wait(futures, num_returns=1)
+                        results.extend(ray.get(done))
 
-            # Process results as they complete
-            for step, futures in all_futures.items():
-                step_dir = step_metadata[step]['step_dir']
-                logger.info(f"Processing results for step {step}")
+                # collect any remaining results
+                if futures:
+                    results.extend(ray.get(futures))
 
-                # Get results for this step (this will wait only for this step's tasks)
-                batch_results = ray.get(futures)
-
-                # Filter out None results (from errors)
-                batch_results = [r for r in batch_results if r is not None]
+                # Filter out None results
+                batch_results = [r for r in results if r is not None]
 
                 if not batch_results:
                     logger.warning(f"No valid results for step {step}, skipping")
@@ -334,7 +336,6 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
                 df = pd.DataFrame(flattened_results)
 
                 # Save results to CSV
-                metrics_path = step_dir / "metrics.csv"
                 df.to_csv(metrics_path, index=False)
                 logger.info(f"Saved metrics to {metrics_path}")
 
