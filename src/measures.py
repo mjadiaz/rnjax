@@ -2,6 +2,153 @@ import infomeasure as im
 import antropy as ant
 import numpy as np
 import networkx as nx
+import quantities as pq
+from elephant.spike_train_synchrony import spike_contrast
+from neo.core import SpikeTrain
+
+def convert_to_spiketrains(S, dt=0.25, T=1000):
+    """
+    Convert a binary spike matrix into Elephant/Neo SpikeTrain objects.
+
+    Parameters
+    ----------
+    S : np.ndarray
+        Binary spike matrix of shape (time_steps, n_neurons).
+        Each entry is 0 (no spike) or 1 (spike).
+    dt : float
+        Time step in ms (default 0.25).
+    T : float
+        Total duration in ms (default 1000).
+
+    Returns
+    -------
+    list of neo.core.SpikeTrain
+        One SpikeTrain per neuron.
+    """
+    n_neurons = S.shape[1]
+    spiketrains = []
+
+    for n in range(n_neurons):
+        spike_indices = np.where(S[:, n] == 1)[0]
+        spike_times = spike_indices * dt * pq.ms
+        st = SpikeTrain(times=spike_times,
+                        t_start=0*pq.ms,
+                        t_stop=T*pq.ms)
+        spiketrains.append(st)
+
+    return spiketrains
+
+def kuramoto_from_binary(S):
+    """
+    Compute a time-resolved Kuramoto synchrony index from a binary spike matrix.
+
+    Parameters
+    ----------
+    S : array-like, shape (T, N)
+        Binary spike matrix: T time bins by N neurons. S[t, n] is 1 if neuron n
+        spikes in bin t, otherwise 0.
+
+    Returns
+    -------
+    r_t : ndarray, shape (T,)
+        Kuramoto order parameter over time; NaN where insufficient phase data.
+    r_mean : float
+        Time-average of r_t, ignoring NaNs (overall synchrony score).
+    theta : ndarray, shape (T, N)
+        Interpolated phases for each neuron over time in [0, 2π); NaN where
+        phase is undefined (e.g., before first spike or after last spike).
+    """
+
+    # Unpack dimensions: T time bins, N neurons.
+    T, N = S.shape
+
+    # For each neuron, find the indices (time bins) where spikes occur.
+    # spike_idx[n] is an array like [t0, t1, ...] for neuron n.
+    spike_idx = [np.flatnonzero(S[:, n]) for n in range(N)]
+
+    # Allocate the phase matrix theta (T x N) and fill with NaN to indicate
+    # "phase not defined" (e.g., outside inter-spike intervals).
+    theta = np.full((T, N), np.nan, float)
+
+    # Build phases neuron by neuron.
+    for n in range(N):
+        idx = spike_idx[n]
+
+        # We need at least two spikes to define a phase that increases
+        # between spikes; otherwise skip this neuron.
+        if len(idx) < 2:
+            continue
+
+        # For each consecutive spike pair (t0 -> t1), linearly interpolate
+        # phase from 0 to 2π across the bins [t0, t1).
+        for k in range(len(idx) - 1):
+            t0, t1 = idx[k], idx[k+1]
+            span = t1 - t0  # number of bins in this inter-spike interval
+
+            # Guard against pathological cases (shouldn't happen with strictly
+            # increasing spike indices, but we’re cautious).
+            if span <= 0:
+                continue
+
+            # np.arange(span) produces 0, 1, ..., span-1.
+            # Divide by span to get ramp in [0, 1), then scale by 2π.
+            theta[t0:t1, n] = 2*np.pi * (np.arange(span) / span)
+
+        # Define the phase exactly at the last spike time as 0 (equivalently 2π).
+        # After the last spike, phase remains NaN (undefined) by design.
+        theta[idx[-1], n] = 0.0
+
+    # Allocate the time-resolved Kuramoto order parameter r(t).
+    # It will be NaN at times where no neuron has a defined phase.
+    r_t = np.full(T, np.nan)
+
+    # For each time bin, compute the circular mean length over neurons
+    # that have a valid phase at that time.
+    for t in range(T):
+        valid = ~np.isnan(theta[t])  # neurons with defined phase at time t
+        if valid.any():
+            # Convert phases to unit phasors e^{iθ}, average across neurons,
+            # and take the magnitude |·| to get r(t) ∈ [0, 1].
+            r_t[t] = np.abs(np.mean(np.exp(1j * theta[t, valid])))
+
+    # Global (time-averaged) synchrony, ignoring times where r(t) is NaN.
+    r_mean = np.nanmean(r_t)
+
+    # Return the time series r(t), its mean, and the full phase matrix.
+    return r_t, r_mean, theta
+
+def synchrony_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, T=2000):
+
+    test_fraction = int(len(S_hist) * fraction)
+    T_conversion = int(T * fraction)
+    A = S_hist[-test_fraction:, surviving_nodes]
+    B = S_hist_R[:test_fraction]
+    C = S_hist_R[-test_fraction:]
+
+    _, r_mean_a, _ = kuramoto_from_binary(A)
+    _, r_mean_b, _ = kuramoto_from_binary(B)
+    _, r_mean_c, _ = kuramoto_from_binary(C)
+
+
+    # el_syn_a = spike_contrast(
+    #     convert_to_spiketrains(A, T=T_conversion),
+    #     return_trace=False, min_bin=0.25*pq.ms)
+    # el_syn_b = spike_contrast(
+    #     convert_to_spiketrains(B, T=T_conversion),
+    #     return_trace=False, min_bin=0.25*pq.ms)
+    # el_syn_c = spike_contrast(
+    #     convert_to_spiketrains(C, T=T_conversion),
+    #     return_trace=False, min_bin=0.25*pq.ms)
+
+
+    return {
+        'r_mean_a': r_mean_a,
+        'r_mean_b': r_mean_b,
+        'r_mean_c': r_mean_c,
+        # 'el_syn_a': el_syn_a,
+        # 'el_syn_b': el_syn_b,
+        # 'el_syn_c': el_syn_c,
+    }
 
 # Resilience assesment
 def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):

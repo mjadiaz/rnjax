@@ -42,7 +42,8 @@ from measures import (
     entropic_measures,
     lz_complexity_measures,
     sample_entropy_measures,
-    global_metrics_directed
+    global_metrics_directed,
+    synchrony_measures
 )
 
 # Set up logging
@@ -93,6 +94,7 @@ def process_batch_ray(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
         emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
         lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
         sp = sample_entropy_measures(pre_attack_S, post_attack_S, take_idx)
+        sync = synchrony_measures(pre_attack_S, post_attack_S, take_idx, T=2000)
 
         #post_G_reconstructed = nx.from_numpy_array(post_attack_W, create_using=nx.DiGraph)
         #gm = global_metrics_directed(post_G_reconstructed)
@@ -114,6 +116,7 @@ def process_batch_ray(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
             'lz': lz,
             'sp': sp,
             'gm': gm,
+            'sync': sync
         }
 
         # Add driver fraction if I_ext is provided
@@ -175,6 +178,7 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
 
         emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
         lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
+        sync = synchrony_measures(pre_attack_S, post_attack_S, take_idx, T=2000)
 
         sp = {
             "avg_se_pre": None,
@@ -203,6 +207,7 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
             'lz': lz,
             'sp': sp,
             'gm': gm,
+            'sync': sync
         }
 
         # Add driver fraction if I_ext is provided
