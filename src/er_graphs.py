@@ -66,7 +66,7 @@ if __name__ == "__main__":
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 250
+            'number_of_graphs': 1
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_erdos_renyi)

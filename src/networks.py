@@ -414,7 +414,6 @@ def stdp_step_syn(params: NetworkParams, stdp_params: STDPParams,
 def run_base_network(params: NetworkParams, initial_state: NetworkState,
                     I_ext: jnp.ndarray) -> Tuple[NetworkState, jnp.ndarray, jnp.ndarray]:
     """Run base network simulation."""
-    @jit
     def step_fn(state, inputs):
         return base_step(params, state, inputs)
 
@@ -424,7 +423,6 @@ def run_base_network(params: NetworkParams, initial_state: NetworkState,
 def run_base_network_syn(params: NetworkParams, initial_state: NetworkState,
                     I_ext: jnp.ndarray) -> Tuple[NetworkState, jnp.ndarray, jnp.ndarray]:
     """Run base network simulation."""
-    @jit
     def step_fn(state, inputs):
         return base_step_syn(params, state, inputs)
 
@@ -436,7 +434,6 @@ def run_stdp_network(params: NetworkParams, stdp_params: STDPParams,
                     initial_state: NetworkState, initial_stdp_state: STDPState,
                     I_ext: jnp.ndarray) -> Tuple[NetworkState, STDPState, jnp.ndarray, jnp.ndarray]:
     """Run STDP network simulation."""
-    @jit
     def step_fn(carry, inputs):
         return stdp_step(params, stdp_params, carry, inputs)
 
@@ -448,7 +445,6 @@ def run_stdp_network_syn(params: NetworkParams, stdp_params: STDPParams,
                     initial_state: NetworkState, initial_stdp_state: STDPState,
                     I_ext: jnp.ndarray) -> Tuple[NetworkState, STDPState, jnp.ndarray, jnp.ndarray]:
     """Run STDP network simulation."""
-    @jit
     def step_fn(carry, inputs):
         return stdp_step_syn(params, stdp_params, carry, inputs)
 
@@ -460,43 +456,128 @@ def run_stdp_network_syn(params: NetworkParams, stdp_params: STDPParams,
 # ============================================================================
 # Helper Functions
 # ============================================================================
+def create_random_network(
+    G=None,
+    N: int = 100,
+    p_connect: float = 0.1,
+    weight_bounds: Tuple[float, float] = (10.0, 20.0),
+    key: Optional[jax.random.PRNGKey] = None,
+) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
+    """
+    Create a random network of Izhikevich neurons (optimised, same interface).
 
-def _create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
-                         weight_bounds: Tuple[float, float] = (10.0, 20.0),
-                         key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
-    """Create a random network of Izhikevich neurons.
-    Note: Can we optimise this? cpu -> gpu"""
+    - If `G` is provided (recommended), we only assign weights in bulk.
+    - If `G` is None, we create an Erdős–Rényi directed graph with `N`, `p_connect`.
+    - 80% excitatory (E), 20% inhibitory (I).
+    - Edge sign is determined by the PRESYNAPTIC neuron (E→* positive, I→* negative).
+
+    Notes:
+    - For correctness with your downstream code, this assumes node labels are 0..N-1.
+      If you pass a custom-labelled graph, ensure labels match that convention.
+    """
+    # -------- RNG: derive a fast NumPy RNG from the (optional) JAX key ----------
     if key is None:
-        key = random.PRNGKey(42)
+        seed = 42
+    else:
+        # Single device->host sync to get a deterministic Python int seed
+        seed = int(
+            jax.random.randint(
+                jax.random.fold_in(key, 0),
+                shape=(),
+                minval=0,
+                maxval=2**31 - 1,
+                dtype=jnp.uint32,
+            )
+        )
+    rng = np.random.default_rng(seed)
 
-    # Create neurons (80% excitatory, 20% inhibitory)
-    neurons = []
-    for i in range(N):
-        neuron_key = random.fold_in(key, i)
-        rand_val = random.uniform(random.fold_in(neuron_key, 1000), ())
-        neuron_type = "E" if rand_val <= 0.8 else "I"  # 80% excitatory
-        neuron = IzhikevichNeuron.auto(neuron_type, key=neuron_key)
-        neurons.append(neuron)
-
+    # -------- Graph handling ----------------------------------------------------
     if G is None:
-        # Create random graph
-        G = nx.erdos_renyi_graph(N, p_connect, directed=True, seed=int(key[0]))
+        # Build a directed Erdős–Rényi graph with nodes 0..N-1
+        G = nx.erdos_renyi_graph(N, p_connect, directed=True, seed=seed)
+    else:
+        # Ensure directed graph type (don’t change topology otherwise)
+        if not isinstance(G, nx.DiGraph):
+            G = G.to_directed()
+        # Prefer N inferred from G to avoid mismatches
+        N = G.number_of_nodes()
 
-    # Add weights
-    weight_key = random.fold_in(key, N)
-    for edge_idx, (i, j) in enumerate(G.edges()):
-        edge_key = random.fold_in(weight_key, edge_idx)
-        weight = random.uniform(edge_key, (), minval=weight_bounds[0], maxval=weight_bounds[1])
+    # Safety guard: expect nodes labelled 0..N-1 (as your pipeline assumes)
+    nodes = list(G.nodes())
+    if set(nodes) != set(range(N)):
+        raise ValueError(
+            "Expected node labels 0..N-1 to match neuron indices. "
+            "Please relabel your graph or adapt downstream mapping."
+        )
 
-        # Make inhibitory connections negative
-        if neurons[j].neuron_type == "I":
-            weight *= -1
+    # -------- Neuron population (vectorised) -----------------------------------
+    # 80% excitatory
+    is_exc = rng.random(N) <= 0.8
+    r = rng.random(N)
 
-        G[i][j]['weight'] = float(weight)
+    a = np.empty(N, dtype=np.float32)
+    b = np.empty(N, dtype=np.float32)
+    c = np.empty(N, dtype=np.float32)
+    d = np.empty(N, dtype=np.float32)
+    patterns = np.empty(N, dtype=object)
+    ntypes = np.where(is_exc, "E", "I")
+
+    # Excitatory params
+    E_idx = is_exc
+    rr = (r[E_idx] ** 2).astype(np.float32)
+    a[E_idx] = 0.02
+    b[E_idx] = 0.2
+    c[E_idx] = -65.0 + 15.0 * rr
+    d[E_idx] = 8.0 - 6.0 * rr
+    patterns[E_idx] = np.where(r[E_idx] < 0.5, "RS", "CH")
+
+    # Inhibitory params
+    I_idx = ~is_exc
+    a[I_idx] = 0.02 + 0.08 * r[I_idx]
+    b[I_idx] = 0.25 - 0.05 * r[I_idx]
+    c[I_idx] = -65.0
+    d[I_idx] = 2.0
+    patterns[I_idx] = "FS"
+
+    # Build the neuron objects (object creation is the only per-neuron loop left)
+    neurons: List[IzhikevichNeuron] = [
+        IzhikevichNeuron(
+            a=float(a[i]),
+            b=float(b[i]),
+            c=float(c[i]),
+            d=float(d[i]),
+            neuron_type=str(ntypes[i]),
+            spike_pattern=str(patterns[i]),
+            r=float(r[i]),
+        )
+        for i in range(N)
+    ]
+
+    # -------- Edge weights (vectorised) ----------------------------------------
+    # Early exit if there are no edges
+    if G.number_of_edges() == 0:
+        return neurons, G
+
+    # Edge list as ndarray (assumes integer node labels 0..N-1)
+    # Shape: (E, 2) with columns [pre, post]
+    edges = np.fromiter(
+        (e for pair in G.edges() for e in pair), dtype=np.int64, count=2 * G.number_of_edges()
+    ).reshape(-1, 2)
+
+    pre = edges[:, 0]
+    # Vectorised magnitudes and signs
+    mags = rng.uniform(low=weight_bounds[0], high=weight_bounds[1], size=pre.size).astype(np.float32)
+    signs = np.where(is_exc[pre], 1.0, -1.0).astype(np.float32)
+    weights = mags * signs  # sign by PRESYN neuron
+
+    # Assign in bulk
+    weight_dict = { (int(u), int(v)): float(w) for (u, v), w in zip(edges, weights) }
+    nx.set_edge_attributes(G, values=weight_dict, name="weight")
 
     return neurons, G
 
-def create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
+
+def _create_random_network(G=None, N: int = 100, p_connect: float = 0.1,
                          weight_bounds: Tuple[float, float] = (10.0, 20.0),
                          key: Optional[jax.random.PRNGKey] = None) -> Tuple[List[IzhikevichNeuron], nx.Graph]:
     """Create a random network of Izhikevich neurons.
