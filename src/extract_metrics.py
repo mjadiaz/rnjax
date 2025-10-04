@@ -151,7 +151,7 @@ def flatten_metrics_dict(metrics_dict: Dict) -> Dict:
 
 # Non-remote version for sequential processing
 def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: np.ndarray,
-                 W0: np.ndarray, removed_ids: np.ndarray, n_nodes: int, I_ext: Optional[np.ndarray] = None) -> Dict:
+                 W0: np.ndarray, removed_ids: np.ndarray, n_nodes: int, I_ext: Optional[np.ndarray] = None, control: bool = False) -> Dict:
     """
     Process a single batch - sequential version without Ray
 
@@ -172,12 +172,24 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
 
         # Needs to be numpy for measure libs infomeasure and Antropy
         pre_attack_S = np.array(base_S_hist)
-        post_attack_S = np.array(pruned_S_hist_batch[batch])
+        if control:
+            post_attack_S = np.array(pruned_S_hist_batch)[:, take_idx]
+        else:
+            post_attack_S = np.array(pruned_S_hist_batch[batch])
 
-        post_attack_W = take_submatrix(W0, take_idx)
 
-        emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
-        lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
+
+        #post_attack_W = take_submatrix(W0, take_idx)
+        try:
+            emsrs = entropic_measures(pre_attack_S, post_attack_S, take_idx)
+        except Exception as e:
+            logger.error(f"Error entropic_measures {batch}: {e}")
+        #lz = lz_complexity_measures(pre_attack_S, post_attack_S, take_idx)
+        lz = {
+            "avg_lz_pre": None,
+            "avg_lz_post_init": None,
+            "avg_lz_post_final": None
+        }
         sync = synchrony_measures(pre_attack_S, post_attack_S, take_idx, T=2000)
 
         sp = {
@@ -213,14 +225,21 @@ def process_batch_seq(batch: int, base_S_hist: np.ndarray, pruned_S_hist_batch: 
         # Add driver fraction if I_ext is provided
         if I_ext is not None:
             b_driver_fraction = I_ext  # Replace with actual calculation if needed
-            result['drf'] = {'batch_driver_fraction': b_driver_fraction[batch]}
+            try:
+                if control:
+                    result['drf'] = {'batch_driver_fraction': b_driver_fraction[0]}
+                else:
+                    result['drf'] = {'batch_driver_fraction': b_driver_fraction[batch]}
+            except Exception as e:
+                logger.error(f"Error b_driver_fraction {batch}: {e}")
+
 
         return result
     except Exception as e:
         logger.error(f"Error processing batch {batch}: {e}")
         return None
 
-def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequential: bool = False) -> None:
+def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequential: bool = False, control: bool = False) -> None:
     """
     Process all steps in a directory using Ray parallelization with pipelining
 
@@ -379,7 +398,7 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
                     continue
 
                 n_nodes = W0.shape[0]
-                batch_size = pruned_S_hist_batch.shape[0]
+                batch_size = removed_ids.shape[0]
 
                 logger.info(f"Processing {batch_size} batches for step {step} sequentially")
                 batch_results = []
@@ -392,7 +411,8 @@ def process_directory(base_dir: Union[str, Path], n_workers: int = 4, force_sequ
                         W0=W0,
                         removed_ids=removed_ids,
                         n_nodes=n_nodes,
-                        I_ext=batch_driver_fraction
+                        I_ext=batch_driver_fraction,
+                        control=control
                     )
                     batch_results.append(result)
 
@@ -609,6 +629,9 @@ Examples:
                         help="Number of Ray workers (default: 4)")
     parser.add_argument("--local", action="store_true",
                         help="Force sequential processing (no parallelism)")
+    parser.add_argument("--control", action='store_true', default=False,
+                        help="Run control metrics mode")
+
     parser.add_argument("--merge-only", action="store_true",
                         help="Only merge existing metrics.csv files without recomputing metrics")
     args = parser.parse_args()
@@ -629,13 +652,14 @@ Examples:
         logger.error(f"Path is not a directory: {base_path}")
         return
 
+    control = bool(args.control)
     # Check if this is a step directory structure
     if any(item.is_dir() and item.name.isdigit() for item in base_path.iterdir()):
         # This is already a valid experiment directory
         if args.merge_only:
             merge_step_metrics(base_path)
         else:
-            process_directory(base_path, args.workers, force_sequential)
+            process_directory(base_path, args.workers, force_sequential, control)
     else:
         # This might be a container of multiple experiment directories
         # Look for subdirectories that contain step directories

@@ -183,9 +183,9 @@ def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=
     h_C = im.entropy(C, **im_args)
 
     # Entropy across neuron spike trains (rows = neurons, columns = time)
-    h_A_T = im.entropy(A.T, **im_args)
-    h_B_T = im.entropy(B.T, **im_args)
-    h_C_T = im.entropy(C.T, **im_args)
+    # h_A_T = im.entropy(A.T, **im_args)
+    # h_B_T = im.entropy(B.T, **im_args)
+    # h_C_T = im.entropy(C.T, **im_args)
 
     # Mutual information between microstate sequences
     mi_AB = im.mutual_information(A, B, **im_args)
@@ -193,23 +193,23 @@ def entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=
     mi_AA = im.mutual_information(A, A, **im_args)
 
     # Mutual information between neuron spike trains
-    mi_AB_T = im.mutual_information(A.T, B.T, **im_args)
-    mi_AC_T = im.mutual_information(A.T, C.T, **im_args)
-    mi_AA_T = im.mutual_information(A.T, A.T, **im_args)
+    # mi_AB_T = im.mutual_information(A.T, B.T, **im_args)
+    # mi_AC_T = im.mutual_information(A.T, C.T, **im_args)
+    # mi_AA_T = im.mutual_information(A.T, A.T, **im_args)
 
     return {
         'h_A': h_A,
         'h_B': h_B,
         'h_C': h_C,
-        'h_A_T': h_A_T,
-        'h_B_T': h_B_T,
-        'h_C_T': h_C_T,
+        # 'h_A_T': h_A_T,
+        # 'h_B_T': h_B_T,
+        # 'h_C_T': h_C_T,
         'mi_AB': mi_AB,
         'mi_AC': mi_AC,
         'mi_AA': mi_AA,
-        'mi_AB_T': mi_AB_T,
-        'mi_AC_T': mi_AC_T,
-        'mi_AA_T': mi_AA_T,
+        # 'mi_AB_T': mi_AB_T,
+        # 'mi_AC_T': mi_AC_T,
+        # 'mi_AA_T': mi_AA_T,
     }
 
 def _entropic_measures(S_hist, S_hist_R, surviving_nodes, fraction=0.33, im_args=None):

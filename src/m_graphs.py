@@ -6,6 +6,7 @@ import jax.random as jr
 
 
 from run_modules import generate_graphs_and_neurons, test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp, test_one_graph
+from run_modules import test_attack_pipeline_seq_stdp_control
 
 def generate_stochastic_block_model(n_nodes: int, rng: np.random.Generator, **kwargs) -> tuple[nx.DiGraph, Dict]:
     """Generate stochastic block model graph."""
@@ -72,39 +73,39 @@ def test_graph():
     plt.show()
 
 structures = {
-    'SBM_sparse_4': {
-        'graph_type': 'SBM',
-        'graph_category': 'sparse',
-        'kwargs': {
-            "n_blocks": 4 ,
-            "p_in": (0.015, 0.025),
-            "p_out": (0.001, 0.003),
-        },
-        'weight_bounds': (1., 60.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
-    'SBM_sparse_3': {
-        'graph_type': 'SBM',
-        'graph_category': 'sparse',
-        'kwargs': {
-            "n_blocks": 3 ,
-            "p_in": (0.015, 0.025),
-            "p_out": (0.001, 0.003),
-        },
-        'weight_bounds': (1., 50.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
-    'SBM_sparse_2': {
-        'graph_type': 'SBM',
-        'graph_category': 'sparse',
-        'kwargs': {
-            "n_blocks": 2 ,
-            "p_in": (0.015, 0.025),
-            "p_out": (0.001, 0.003),
-        },
-        'weight_bounds': (1., 40.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
+    # 'SBM_sparse_4': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'sparse',
+    #     'kwargs': {
+    #         "n_blocks": 4 ,
+    #         "p_in": (0.015, 0.025),
+    #         "p_out": (0.001, 0.003),
+    #     },
+    #     'weight_bounds': (1., 60.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
+    # 'SBM_sparse_3': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'sparse',
+    #     'kwargs': {
+    #         "n_blocks": 3 ,
+    #         "p_in": (0.015, 0.025),
+    #         "p_out": (0.001, 0.003),
+    #     },
+    #     'weight_bounds': (1., 50.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
+    # 'SBM_sparse_2': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'sparse',
+    #     'kwargs': {
+    #         "n_blocks": 2 ,
+    #         "p_in": (0.015, 0.025),
+    #         "p_out": (0.001, 0.003),
+    #     },
+    #     'weight_bounds': (1., 40.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
     'SBM_intermediate_4': {
         'graph_type': 'SBM',
         'graph_category': 'intermediate',
@@ -113,31 +114,31 @@ structures = {
             "p_in": (0.03, 0.05),
             "p_out": (0.003, 0.007),
         },
-        'weight_bounds': (1., 40.),
+        'weight_bounds': (1., 10.),
         #   'description': 'SBM Assortative (high within-block, low between-block)'
     },
-    'SBM_intermediate_3': {
-        'graph_type': 'SBM',
-        'graph_category': 'intermediate',
-        'kwargs': {
-            "n_blocks": 3 ,
-            "p_in": (0.03, 0.05),
-            "p_out": (0.003, 0.007),
-        },
-        'weight_bounds': (1., 30.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
-    'SBM_intermediate_2': {
-        'graph_type': 'SBM',
-        'graph_category': 'intermediate',
-        'kwargs': {
-            "n_blocks": 2 ,
-            "p_in": (0.03, 0.05),
-            "p_out": (0.003, 0.007),
-        },
-        'weight_bounds': (1., 20.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
+    # 'SBM_intermediate_3': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'intermediate',
+    #     'kwargs': {
+    #         "n_blocks": 3 ,
+    #         "p_in": (0.03, 0.05),
+    #         "p_out": (0.003, 0.007),
+    #     },
+    #     'weight_bounds': (1., 30.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
+    # 'SBM_intermediate_2': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'intermediate',
+    #     'kwargs': {
+    #         "n_blocks": 2 ,
+    #         "p_in": (0.03, 0.05),
+    #         "p_out": (0.003, 0.007),
+    #     },
+    #     'weight_bounds': (1., 20.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
     'SBM_dense_4': {
         'graph_type': 'SBM',
         'graph_category': 'dense',
@@ -149,28 +150,29 @@ structures = {
         'weight_bounds': (1., 10.),
         #   'description': 'SBM Assortative (high within-block, low between-block)'
     },
-    'SBM_dense_3': {
-        'graph_type': 'SBM',
-        'graph_category': 'dense',
-        'kwargs': {
-            "n_blocks": 3 ,
-            "p_in": (0.06, 0.09),
-            "p_out": (0.006, 0.012),
-        },
-        'weight_bounds': (1., 10.),
+    # 'SBM_dense_3': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'dense',
+    #     'kwargs': {
+    #         "n_blocks": 3 ,
+    #         "p_in": (0.06, 0.09),
+    #         "p_out": (0.006, 0.012),
+    #     },
+    #     'weight_bounds': (1., 10.),
+    #     #   'description': 'SBM Assortative (high within-block, low between-block)'
+    # },
+    # 'SBM_dense_2': {
+    #     'graph_type': 'SBM',
+    #     'graph_category': 'dense',
+    #     'kwargs': {
+    #         "n_blocks": 2 ,
+    #         "p_in": (0.06, 0.09),
+    #         "p_out": (0.006, 0.012),
+    #     },
+    #     'weight_bounds': (1., 5.),
         #   'description': 'SBM Assortative (high within-block, low between-block)'
-    },
-    'SBM_dense_2': {
-        'graph_type': 'SBM',
-        'graph_category': 'dense',
-        'kwargs': {
-            "n_blocks": 2 ,
-            "p_in": (0.06, 0.09),
-            "p_out": (0.006, 0.012),
-        },
-        'weight_bounds': (1., 5.),
-        #   'description': 'SBM Assortative (high within-block, low between-block)'
-    }}
+    # }
+    }
 if __name__ == '__main__':
     """
     For modular graphs we can vary p_in and p_out to control density, and also different block sizes and of course number of modules = [2,3,4].
@@ -198,35 +200,35 @@ if __name__ == '__main__':
     # Generate random seeds for experiments
     rng = np.random.default_rng()
     experiment_configs = [
-        ('SBM_sparse_4',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_sparse_3', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_sparse_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_sparse_4',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_sparse_3', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_sparse_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('SBM_intermediate_4',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_intermediate_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_intermediate_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_intermediate_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_intermediate_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('SBM_dense_4', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_dense_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SBM_dense_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
+        # ('SBM_dense_3',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SBM_dense_2',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save/'  + strtr
+        save_name = 'save_control/'  + strtr
 
         attack_params = {
-            'n_nodes': 500,
+            'n_nodes': 200,
             'T_global': 2000, #ms
-            'batch_size': 10,
+            'batch_size': 5,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 250
+            'number_of_graphs': 1
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_stochastic_block_model)
 
         # Run base test
-        test_attack_pipeline_seq_base(structures[strtr], save_name+'_base', attack_params, p_ggn)
+        test_attack_pipeline_seq_stdp_control(structures[strtr], save_name+'_stdp_control', attack_params, p_ggn)
 
         # Increment keys for STDP test
         attack_params['attack_key'] = attack_params['attack_key'] + 1

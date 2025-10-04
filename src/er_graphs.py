@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 
 from attack import run_attack_batch_base, run_attack_batch_stdp
-from run_modules import generate_graphs_and_neurons, test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp
+from run_modules import generate_graphs_and_neurons, test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp, test_attack_pipeline_seq_stdp_control
 
 
 def generate_erdos_renyi(n_nodes: int, rng: np.random.Generator, **kwargs) -> tuple[nx.DiGraph, Dict]:
@@ -28,20 +28,20 @@ def generate_erdos_renyi(n_nodes: int, rng: np.random.Generator, **kwargs) -> tu
 
 structures = {
     # Erdős-Rényi configurations
-    'ER_sparse': {
-        'kwargs':{'p': (0.001, 0.01)},
-        'graph_category': 'sparse',
-        'weight_bounds': (1., 50.),
-    },
+    # 'ER_sparse': {
+    #     'kwargs':{'p': (0.001, 0.01)},
+    #     'graph_category': 'sparse',
+    #     'weight_bounds': (1., 50.),
+    # },
     'ER_intermediate': {
         'kwargs':{'p': (0.01, 0.05)},
         'graph_category': 'intermediate',
         'weight_bounds': (1., 10.),
     },
     'ER_dense': {
-        'kwargs':{'p': (0.05, 0.3)},
+        'kwargs':{'p': (0.05, 0.2)},
         'graph_category': 'dense',
-        'weight_bounds': (1., 3.),
+        'weight_bounds': (.5, 2.),
     }
 }
 
@@ -50,19 +50,19 @@ if __name__ == "__main__":
     # Generate random seeds for experiments
     rng = np.random.default_rng()
     experiment_configs = [
-        ('ER_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+      #  ('ER_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('ER_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('ER_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1)))
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save/'  + strtr
+        save_name = 'save_control/'  + strtr
 
         attack_params = {
-            'n_nodes': 500,
+            'n_nodes': 200,
             'T_global': 2000, #ms
-            'batch_size': int(2**6),
+            'batch_size': 5,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
@@ -72,7 +72,7 @@ if __name__ == "__main__":
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_erdos_renyi)
 
         # Run base test
-        test_attack_pipeline_seq_base(structures[strtr], save_name+'_base', attack_params, p_ggn)
+        test_attack_pipeline_seq_stdp_control(structures[strtr], save_name+'_stdp_control', attack_params, p_ggn)
 
         # Increment keys for STDP test
         attack_params['attack_key'] = attack_params['attack_key'] + 1

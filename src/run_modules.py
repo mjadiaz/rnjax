@@ -7,6 +7,7 @@ from utils import plot_adjacency_matrix, plot_raster
 from networks import create_random_network, run_single_network
 import time
 from attack import run_attack_batch_base, run_attack_batch_stdp
+from attack import run_attack_batch_base_control, run_attack_batch_stdp_control
 
 from jax import lax, random
 import jax
@@ -59,6 +60,33 @@ def test_attack_pipeline_seq_stdp(structure, save_path, attack_params, gn_fn):
     I_ext = jnp.ones((steps, n_nodes)) * 10
 
     run_attack_batch_stdp(
+        G_list,
+        neurons_list,
+        I_ext,
+        batch_size,
+        attack_fraction,
+        attack_key,
+        save_path=save_path
+    )
+    t1_global = time.perf_counter()
+    print(f"Total time pipeline stdp:  {t1_global- t0_global:.3f}s")
+
+def test_attack_pipeline_seq_stdp_control(structure, save_path, attack_params, gn_fn):
+    t0_global = time.perf_counter()
+
+    n_nodes = attack_params['n_nodes']
+    T_global = attack_params['T_global'] #ms
+    batch_size = attack_params['batch_size']
+    attack_fraction = attack_params['attack_fraction']
+    attack_key = attack_params['attack_key']
+
+    dt = 0.25
+    steps = int(T_global / dt)
+
+    G_list, neurons_list = gn_fn(structure, attack_params)
+    I_ext = jnp.ones((steps, n_nodes)) * 10
+
+    run_attack_batch_stdp_control(
         G_list,
         neurons_list,
         I_ext,

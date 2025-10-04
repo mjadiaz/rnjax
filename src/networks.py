@@ -137,8 +137,10 @@ def create_initial_state(neurons: List[IzhikevichNeuron], G: nx.Graph,
     # Add noise if requested
     if add_noise and key is not None:
         noise = random.normal(key, (N,), dtype=jnp.float32)
-        v_init = v_init + noise
+        v_init = jax.random.uniform(key, (N,), minval=-70.0, maxval=-60.0)
         u_init = jnp.array([n.b for n in neurons], dtype=jnp.float32) * v_init
+        # v_init = v_init + noise
+        # u_init = jnp.array([n.b for n in neurons], dtype=jnp.float32) * v_init
 
     # Convert graph to weight matrix
     node_order = list(G.nodes)

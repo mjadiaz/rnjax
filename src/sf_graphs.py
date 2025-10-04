@@ -6,7 +6,7 @@ import jax.random as jr
 
 
 #from er_graphs import test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp
-from run_modules import generate_graphs_and_neurons, test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp, test_one_graph
+from run_modules import generate_graphs_and_neurons, test_attack_pipeline_seq_base, test_attack_pipeline_seq_stdp, test_attack_pipeline_seq_stdp_control, test_one_graph
 
 def generate_scale_free(n_nodes: int, rng: np.random.Generator, **kwargs) -> tuple[nx.DiGraph, Dict]:
     """
@@ -88,90 +88,90 @@ def test_graph():
 
 
 structures = {
-    'SF_receiver_sparse': {
-        'graph_type': 'SF',
-        'graph_category': 'receiver',
-        'kwargs': {
-            'm': (1,3),
-            'orient_frac':  1.,
-            'bias': (0.01, 0.2),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 50.),
-    },
-    'SF_receiver_intermediate': {
-        'graph_type': 'SF',
-        'graph_category': 'receiver',
-        'kwargs': {
-            'm': (4,6),
-            'orient_frac':  1.,
-            'bias': (0.01, 0.2),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 30.),
-    },
-    'SF_receiver_dense': {
-        'graph_type': 'SF',
-        'graph_category': 'receiver',
-        'kwargs': {
-            'm': (7,10),
-            'orient_frac':  1.,
-            'bias': (0.01, 0.2),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 20.),
-    },
-    'SF_broadcaster_sparse': {
-        'graph_type': 'SF',
-        'graph_category': 'broadcaster',
-        'kwargs': {
-            'm': (1,3),
-            'orient_frac':  1.,
-            'bias': (0.7, 1.),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 50.),
-    },
-    'SF_broadcaster_intermediate': {
-        'graph_type': 'SF',
-        'graph_category': 'broadcaster',
-        'kwargs': {
-            'm': (4,6),
-            'orient_frac':  1.,
-            'bias': (0.7, 1.),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 30.),
-    },
-    'SF_broadcaster_dense': {
-        'graph_type': 'SF',
-        'graph_category': 'broadcaster',
-        'kwargs': {
-            'm': (7,10),
-            'orient_frac':  1.,
-            'bias': (0.7, 1.),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 20.),
-    },
-    'SF_balanced_sparse': {
-        'graph_type': 'SF',
-        'graph_category': 'balanced',
-        'kwargs': {
-            'm': (1, 3),
-            'orient_frac':  1.,
-            'bias': (0.3, 0.6),
-            'p': (0.001, 0.1), # Keep Scale-free property
-            'q': (0.001, 0.1),# Keep Scale-free property
-        },
-        'weight_bounds': (1., 50.),
-    },
+    # 'SF_receiver_sparse': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'receiver',
+    #     'kwargs': {
+    #         'm': (1,3),
+    #         'orient_frac':  1.,
+    #         'bias': (0.01, 0.2),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 50.),
+    # },
+    # 'SF_receiver_intermediate': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'receiver',
+    #     'kwargs': {
+    #         'm': (4,6),
+    #         'orient_frac':  1.,
+    #         'bias': (0.01, 0.2),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 30.),
+    # },
+    # 'SF_receiver_dense': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'receiver',
+    #     'kwargs': {
+    #         'm': (7,10),
+    #         'orient_frac':  1.,
+    #         'bias': (0.01, 0.2),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 20.),
+    # },
+    # 'SF_broadcaster_sparse': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'broadcaster',
+    #     'kwargs': {
+    #         'm': (1,3),
+    #         'orient_frac':  1.,
+    #         'bias': (0.7, 1.),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 50.),
+    # },
+    # 'SF_broadcaster_intermediate': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'broadcaster',
+    #     'kwargs': {
+    #         'm': (4,6),
+    #         'orient_frac':  1.,
+    #         'bias': (0.7, 1.),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 30.),
+    # },
+    # 'SF_broadcaster_dense': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'broadcaster',
+    #     'kwargs': {
+    #         'm': (7,10),
+    #         'orient_frac':  1.,
+    #         'bias': (0.7, 1.),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 20.),
+    # },
+    # 'SF_balanced_sparse': {
+    #     'graph_type': 'SF',
+    #     'graph_category': 'balanced',
+    #     'kwargs': {
+    #         'm': (1, 3),
+    #         'orient_frac':  1.,
+    #         'bias': (0.3, 0.6),
+    #         'p': (0.001, 0.1), # Keep Scale-free property
+    #         'q': (0.001, 0.1),# Keep Scale-free property
+    #     },
+    #     'weight_bounds': (1., 50.),
+    # },
     'SF_balanced_intermediate': {
         'graph_type': 'SF',
         'graph_category': 'balanced',
@@ -218,35 +218,35 @@ if __name__ == '__main__':
     # Define the structure types and their corresponding keys
     rng = np.random.default_rng()
     experiment_configs = [
-        ('SF_receiver_sparse',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_receiver_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_receiver_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_broadcaster_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_broadcaster_intermediate',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_broadcaster_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
-        ('SF_balanced_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_receiver_sparse',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_receiver_intermediate', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_receiver_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_broadcaster_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_broadcaster_intermediate',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_broadcaster_dense', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
+        # ('SF_balanced_sparse', int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('SF_balanced_intermediate',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
         ('SF_balanced_dense',int(rng.integers(0, 2**32 - 1)), int(rng.integers(0, 2**32 - 1))),
     ]
 
     # Run each experiment
     for strtr, attack_key, graphs_key in experiment_configs:
-        save_name = 'save/'  + strtr
+        save_name = 'save_control/'  + strtr
 
         attack_params = {
-            'n_nodes': 500,
+            'n_nodes': 200,
             'T_global': 2000, #ms
-            'batch_size': 10,
+            'batch_size': 5,
             'attack_fraction': 0.1,
             'attack_key': attack_key,
             'graphs_key': graphs_key,
-            'number_of_graphs': 250
+            'number_of_graphs': 1
         }
 
         p_ggn = lambda structure, attack_params: generate_graphs_and_neurons(structure, attack_params, generate_scale_free)
 
         # Run base test
-        test_attack_pipeline_seq_base(structures[strtr], save_name+'_base', attack_params, p_ggn)
+        test_attack_pipeline_seq_stdp_control(structures[strtr], save_name+'_stdp_control', attack_params, p_ggn)
 
         # Increment keys for STDP test
         attack_params['attack_key'] = attack_params['attack_key'] + 1
